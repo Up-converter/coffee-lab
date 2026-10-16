@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>咖啡实验台 CoffeeLab</title>
+<meta name="theme-color" content="#1E3A2F">
+<meta name="description" content="意式与手冲的冲煮参数、风味记录与对比实验台">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="storage-warning" class="storage-warning" hidden></div>
+<div id="app-toast" class="status-toast" hidden></div>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-icon">⚗️</span>
+      <div>
+        <div class="brand-name">CoffeeLab</div>
+        <div class="brand-sub">咖啡实验台</div>
+      </div>
+    </div>
+    <nav class="side-nav">
+      <a href="#/brews" data-nav="brews">☕ 记录</a>
+      <a href="#/beans" data-nav="beans">🫘 豆子</a>
+      <a href="#/compare" data-nav="compare">🆚 对比</a>
+      <a href="#/settings" data-nav="settings">⚙️ 设置</a>
+    </nav>
+    <div class="sidebar-slogan">
+      <div class="slogan-en">A LITTLE MORE INTENTIONAL</div>
+      <div class="slogan-cn">每一杯，都值得被理解。</div>
+    </div>
+  </aside>
+  <main id="view" class="view"></main>
+</div>
+<nav class="bottom-nav">
+  <a href="#/brews" data-nav="brews">☕<span>记录</span></a>
+  <a href="#/beans" data-nav="beans">🫘<span>豆子</span></a>
+  <a href="#/compare" data-nav="compare">🆚<span>对比</span></a>
+  <a href="#/settings" data-nav="settings">⚙️<span>设置</span></a>
+</nav>
+<script src="js/core.js"></script>
+<script src="js/store.js"></script>
+<script src="js/ui/beans.js"></script>
+<script src="js/ui/brews.js"></script>
+<script src="js/ui/compare.js"></script>
+<script src="js/ui/settings.js"></script>
+<script src="js/ui/app.js"></script>
+</body>
+</html>
