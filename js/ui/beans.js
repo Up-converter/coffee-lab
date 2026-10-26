@@ -25,6 +25,15 @@
 
   function mount(rootEl) { rootEl.innerHTML = ''; var d = document.createElement('div'); rootEl.appendChild(d); return d; }
 
+  /* 枚举选项：datalist 在部分手机浏览器点选无效，统一用原生 select（保留历史自定义值） */
+  function enumOptions(values, current) {
+    var list = values.slice();
+    if (current && list.indexOf(current) < 0) list.push(current);
+    return '<option value=""></option>' + list.map(function (v) {
+      return '<option value="' + C.esc(v) + '"' + (v === current ? ' selected' : '') + '>' + C.esc(v) + '</option>';
+    }).join('');
+  }
+
   function renderList(rootEl) {
     var root = mount(rootEl);
     var store = CoffeeApp.store, s = store.get();
@@ -71,15 +80,13 @@
       + '<div class="form-section"><h4>基本信息</h4><div class="field-row">'
       + '<div class="field"><span class="label">名称 <span class="req">*</span></span><input id="b-name" class="input" value="' + C.esc(v('name')) + '"></div>'
       + '<div class="field"><span class="label">烘焙商</span><input id="b-roaster" class="input" value="' + C.esc(v('roaster')) + '"></div>'
-      + '<div class="field"><span class="label">烘焙度</span><input id="b-roast" class="input" list="roast-list" value="' + C.esc(v('roastLevel')) + '"></div>'
+      + '<div class="field"><span class="label">烘焙度</span><select id="b-roast" class="input">' + enumOptions(C.ROAST_LEVELS, v('roastLevel')) + '</select></div>'
       + '<div class="field"><span class="label">烘焙日期</span><input id="b-roast-date" class="input" type="date" value="' + C.esc(v('roastDate')) + '"><span class="hint">用于自动计算养豆天数</span></div>'
-      + '<datalist id="roast-list">' + C.ROAST_LEVELS.map(function (r) { return '<option value="' + r + '">'; }).join('') + '</datalist>'
       + '</div></div>'
       + '<div class="form-section"><h4>产地与处理</h4><div class="field-row">'
       + '<div class="field"><span class="label">产国</span><input id="b-country" class="input" value="' + C.esc(v('country')) + '"></div>'
       + '<div class="field"><span class="label">产区</span><input id="b-region" class="input" value="' + C.esc(v('region')) + '"></div>'
-      + '<div class="field"><span class="label">处理法</span><input id="b-process" class="input" list="process-list" value="' + C.esc(v('process')) + '"></div>'
-      + '<datalist id="process-list">' + C.PROCESSES.map(function (p) { return '<option value="' + p + '">'; }).join('') + '</datalist>'
+      + '<div class="field"><span class="label">处理法</span><select id="b-process" class="input">' + enumOptions(C.PROCESSES, v('process')) + '</select></div>'
       + '<div class="field"><span class="label">豆种</span><input id="b-variety" class="input" value="' + C.esc(v('variety')) + '" placeholder="Heirloom / Geisha…"></div>'
       + '<div class="field"><span class="label">海拔</span><input id="b-elevation" class="input" value="' + C.esc(v('elevation')) + '"></div>'
       + '</div></div>'

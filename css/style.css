@@ -142,26 +142,27 @@ input[type=range].c-green { accent-color: var(--green-mid); }
 .pour-row { display: grid; grid-template-columns: 1fr 26px 1fr 34px; gap: 8px; align-items: center; }
 .pour-del { border: none; background: none; color: var(--danger); font-size: 17px; cursor: pointer; }
 
-/* 照片：表单缩略图 / 列表横幅 / 详情照片墙 / 全屏查看 */
-.photo-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.photo-tile { position: relative; aspect-ratio: 1 / 1; border-radius: 10px; overflow: hidden;
+/* 照片：表单缩略图 / 列表横幅 / 详情照片墙 / 全屏查看
+ * 兼容性：不使用 aspect-ratio / inset（旧移动内核不支持，会导致高度塌陷/定位失效），高度全部固定 */
+.photo-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; grid-gap: 10px; }
+.photo-tile { position: relative; height: 92px; border-radius: 10px; overflow: hidden;
   background: #EFECE2; border: 1px solid var(--line); }
-.photo-tile.loading::after { content: '…'; position: absolute; inset: 0; display: flex; align-items: center;
-  justify-content: center; color: var(--muted); font-size: 15px; }
+.photo-tile.loading::after { content: '…'; position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 15px; }
 .photo-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .photo-del { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; border-radius: 50%;
   border: none; background: rgba(30, 58, 47, .72); color: #F5F3EC; font-size: 13px; line-height: 1; cursor: pointer; }
-.photo-add { aspect-ratio: 1 / 1; border: 1.5px dashed var(--line); border-radius: 10px; background: #FBFAF5;
+.photo-add { height: 92px; border: 1.5px dashed var(--line); border-radius: 10px; background: #FBFAF5;
   color: var(--green-mid); font-size: 20px; cursor: pointer;
-  display: flex; flex-direction: column; gap: 4px; align-items: center; justify-content: center; }
-.photo-add span { font-size: 11px; letter-spacing: .5px; }
-.card-photo { margin: -16px -16px 12px; border-radius: 15px 15px 0 0; overflow: hidden; aspect-ratio: 4 / 3; background: #EFECE2; }
+  display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.photo-add span { font-size: 11px; letter-spacing: .5px; margin-top: 4px; }
+.card-photo { margin: -16px -16px 12px; border-radius: 15px 15px 0 0; overflow: hidden; height: 168px; background: #EFECE2; }
 .card-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.photo-strip { display: flex; gap: 10px; margin: 16px 0 4px; overflow-x: auto; padding-bottom: 4px; }
-.strip-thumb { flex-shrink: 0; width: 96px; height: 96px; border-radius: 12px; overflow: hidden;
+.photo-strip { display: flex; margin: 16px 0 4px; overflow-x: auto; padding-bottom: 4px; }
+.strip-thumb { flex-shrink: 0; width: 96px; height: 96px; margin-right: 10px; border-radius: 12px; overflow: hidden;
   border: 1px solid var(--line); padding: 0; cursor: pointer; background: #EFECE2; }
 .strip-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.lightbox { position: fixed; inset: 0; z-index: 100; background: rgba(20, 26, 23, .94);
+.lightbox { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 100; background: rgba(20, 26, 23, .94);
   display: flex; align-items: center; justify-content: center; }
 .lightbox img { max-width: 94vw; max-height: 88vh; object-fit: contain; border-radius: 6px; }
 .lb-close { position: absolute; top: calc(12px + env(safe-area-inset-top)); right: 14px; width: 38px; height: 38px;

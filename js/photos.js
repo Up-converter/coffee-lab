@@ -110,23 +110,45 @@
     });
   }
 
+  /* canvas → JPEG Blob；个别旧内核 toBlob 缺失/不回调，用 toDataURL 兜底 */
   function canvasToBlob(canvas) {
     return new Promise(function (resolve, reject) {
+      var settled = false;
+      function fallback() {
+        if (settled) return;
+        settled = true;
+        try { resolve(dataURLToBlob(canvas.toDataURL('image/jpeg', JPEG_QUALITY))); }
+        catch (e) { reject(new Error('图片压缩失败')); }
+      }
+      if (!canvas.toBlob) { fallback(); return; }
+      var timer = setTimeout(fallback, 1500);            /* 回调不来就走兜底 */
       canvas.toBlob(function (blob) {
-        if (blob) resolve(blob); else reject(new Error('图片压缩失败'));
+        if (settled) return;
+        settled = true; clearTimeout(timer);
+        if (blob) resolve(blob); else fallback();
       }, 'image/jpeg', JPEG_QUALITY);
     });
   }
 
+  /* 超大源图（如 4800 万像素手机直出）在部分移动端画布上会失败：先逐级减半到安全面积再缩放 */
+  var MAX_CANVAS_PIXELS = 16777216;
+
   function compress(file) {
     return loadImage(file).then(function (img) {
-      var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+      var src = img, w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
       if (!w || !h) return Promise.reject(new Error('无法读取图片'));
+      while (w * h > MAX_CANVAS_PIXELS) {
+        var step = document.createElement('canvas');
+        step.width = Math.max(1, Math.round(w / 2));
+        step.height = Math.max(1, Math.round(h / 2));
+        step.getContext('2d').drawImage(src, 0, 0, step.width, step.height);
+        src = step; w = step.width; h = step.height;
+      }
       var scale = Math.min(1, MAX_EDGE / Math.max(w, h));
       var canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.round(w * scale));
       canvas.height = Math.max(1, Math.round(h * scale));
-      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.getContext('2d').drawImage(src, 0, 0, canvas.width, canvas.height);
       return canvasToBlob(canvas);
     });
   }

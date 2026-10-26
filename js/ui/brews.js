@@ -19,6 +19,16 @@
       + (C.METHOD_LABEL[m] || C.esc(m) || '记录') + '</span>';
   }
 
+  /* 枚举选项：datalist 在部分手机浏览器"下拉可见但点选无效"，统一改原生 select；
+   * 历史数据里的自定义值若不在标准列表中，追加为选项保持可显示 */
+  function enumOptions(values, current) {
+    var list = values.slice();
+    if (current && list.indexOf(current) < 0) list.push(current);
+    return '<option value=""></option>' + list.map(function (v) {
+      return '<option value="' + C.esc(v) + '"' + (v === current ? ' selected' : '') + '>' + C.esc(v) + '</option>';
+    }).join('');
+  }
+
   /* 复用 index.html 常驻 #app-toast 的轻提示（与 settings.js 同款，6s 自动隐藏） */
   var appToastTimer = null;
   function appToast(msg, isErr) {
@@ -342,7 +352,6 @@
 
     var manual = manualBean ? (base ? base.beanSnapshot : null) : (editBrew ? editBrew.beanSnapshot : null);
     var datalistBeans = s.beans.map(function (b) { return '<option value="' + C.esc(b.name) + '">'; }).join('');
-    var datalistRoast = C.ROAST_LEVELS.map(function (r) { return '<option value="' + r + '">'; }).join('');
     var datalistDrippers = unique(s.brews.map(function (w) { return w.dripper; })).map(function (d) { return '<option value="' + C.esc(d) + '">'; }).join('');
 
     var sliders = C.SENSORY_SLIDERS.concat(isEsp ? [C.ESPRESSO_EXTRA_SLIDER] : []);
@@ -417,13 +426,12 @@
       + '</div>'
       + '<div class="field-row" id="bean-manual"' + (manualBean ? '' : ' hidden') + '>'
       + '<div class="field"><span class="label">豆名 <span class="req">*</span></span><input id="f-bean-name" class="input" list="bean-names" value="' + C.esc(manual ? manual.name : '') + '"></div>'
-      + '<div class="field"><span class="label">烘焙度</span><input id="f-roast" class="input" list="roast-levels" value="' + C.esc(manual ? (manual.roastLevel || '') : '') + '"></div>'
+      + '<div class="field"><span class="label">烘焙度</span><select id="f-roast" class="input">' + enumOptions(C.ROAST_LEVELS, manual ? (manual.roastLevel || '') : '') + '</select></div>'
       + '<div class="field"><span class="label">烘焙日期</span><input id="f-roast-date" class="input" type="date" value="' + C.esc(manual ? (manual.roastDate || '') : '') + '"></div>'
       + '<div class="field wide"><label class="hint"><input type="checkbox" id="f-save-bean"> 同时存入豆子库</label></div>'
       + '</div>'
       + '<div class="bean-age" id="bean-age-line"></div>'
       + '<datalist id="bean-names">' + datalistBeans + '</datalist>'
-      + '<datalist id="roast-levels">' + datalistRoast + '</datalist>'
       + '</div>'
 
       + '<div class="form-section"><h4>② 核心参数</h4>'
