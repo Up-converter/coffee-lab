@@ -10,7 +10,6 @@
     var s = w.beanSnapshot || {};
     var E = (w.advanced && w.advanced.espresso) || {}, P = (w.advanced && w.advanced.pourOver) || {};
     var age = s.roastDate ? C.calcBeanAgeDays(w.date, s.roastDate) : null;
-    var isPour = w.method === 'pourOver';
     return [
       ['日期', (w.date || '').replace('T', ' ')],
       ['方式', C.METHOD_LABEL[w.method]],
@@ -20,7 +19,7 @@
       ['粉量 (g)', fmt(w.dose)],
       ['液重/注水 (g)', fmt(w.water)],
       ['比例', C.formatRatio(w.dose, w.water)],
-      ['时间', isPour ? C.formatDuration(w.time) : fmt(w.time, 's')],
+      ['时间', C.formatTimeFor(w.method, w.time)],
       ['水温 (℃)', fmt(w.temp)],
       ['研磨刻度', w.grind || ''],
       ['滤杯', w.dripper || ''],

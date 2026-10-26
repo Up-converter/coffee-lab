@@ -6,6 +6,8 @@ test('常量与标签', () => {
   assert.equal(C.DATA_VERSION, 1);
   assert.equal(C.METHOD_LABEL.espresso, '意式');
   assert.equal(C.METHOD_LABEL.pourOver, '手冲');
+  assert.equal(C.METHOD_LABEL.coldBrew, '冷萃');
+  assert.deepEqual(C.METHODS, ['espresso', 'pourOver', 'coldBrew']);
   assert.equal(C.ROAST_LEVELS.length, 6);
   assert.ok(C.FLAVOR_TAGS.includes('柑橘'));
   assert.equal(C.SENSORY_SLIDERS.length, 8);
@@ -52,6 +54,15 @@ test('formatDuration', () => {
   assert.equal(C.formatDuration(27), '27s');
   assert.equal(C.formatDuration(150), '2:30');
   assert.equal(C.formatDuration(null), '');
+});
+
+test('formatTimeFor 按方式格式化时间', () => {
+  assert.equal(C.formatTimeFor('espresso', 27), '27s');
+  assert.equal(C.formatTimeFor('pourOver', 150), '2:30');
+  assert.equal(C.formatTimeFor('coldBrew', 43200), '12h');     // 12 小时
+  assert.equal(C.formatTimeFor('coldBrew', 45000), '12.5h');   // 12.5 小时
+  assert.equal(C.formatTimeFor('coldBrew', null), '');
+  assert.equal(C.formatTimeFor('espresso', null), '');
 });
 
 test('formatPours', () => {
@@ -108,6 +119,18 @@ test('beanSnapshot / gearSnapshot', () => {
   var gear = { machine: 'ECM', espressoGrinder: 'Niche', pourOverGrinder: 'C40', kettle: 'Fellow', basket: '18g', filterPaper: 'Hario' };
   assert.deepEqual(C.gearSnapshot(gear, 'espresso'), { machine: 'ECM', grinder: 'Niche', basket: '18g' });
   assert.deepEqual(C.gearSnapshot(gear, 'pourOver'), { grinder: 'C40', kettle: 'Fellow', filterPaper: 'Hario' });
+  assert.deepEqual(C.gearSnapshot(gear, 'coldBrew'), { grinder: 'C40', filterPaper: 'Hario' });
+});
+
+test('validateData 接受三种冲煮方式', () => {
+  ['espresso', 'pourOver', 'coldBrew'].forEach(function (m) {
+    var s = C.emptyState();
+    s.brews = [{ id: 'w1', method: m, date: '2026-10-20T08:00' }];
+    assert.equal(C.validateData(s).ok, true, m);
+  });
+  var bad = C.emptyState();
+  bad.brews = [{ id: 'w1', method: 'aeroPress', date: '2026-10-20T08:00' }];
+  assert.equal(C.validateData(bad).ok, false);   // 未知方式被拒绝
 });
 
 function sampleBrew() {
@@ -294,6 +317,60 @@ test('parseBrewForm: 手冲 pours 过滤空行', () => {
   assert.deepEqual(r.brew.advanced.pourOver.pours[0], { target: 45, at: '0:30' });
   assert.deepEqual(r.brew.gearSnapshot, { grinder: 'C40', kettle: 'Fellow', filterPaper: 'Hario' });
   assert.equal(r.brew.sensory.sliders.strength, undefined);
+});
+
+test('parseBrewForm: 冷萃记录', () => {
+  var raw = baseRaw();
+  raw.method = 'coldBrew'; raw.beanId = ''; raw.beanName = '豆C';
+  raw.time = '43200';                       // UI 已换算为秒传入
+  raw.sliders.strength = '';
+  raw.advanced.coldBrew = { container: '冷泡壶', beverageWeight: '800' };
+  var r = C.parseBrewForm(raw, { beans: BEANS, gear: GEARS });
+  assert.equal(r.ok, true);
+  assert.equal(r.brew.method, 'coldBrew');
+  assert.equal(r.brew.time, 43200);
+  assert.equal(r.brew.advanced.espresso, null);
+  assert.equal(r.brew.advanced.pourOver, null);
+  assert.deepEqual(r.brew.advanced.coldBrew, { container: '冷泡壶', beverageWeight: 800 });
+  assert.equal(r.brew.dripper, null);
+  assert.deepEqual(r.brew.gearSnapshot, { grinder: 'C40', filterPaper: 'Hario' });  // 无手冲壶
+  assert.equal(r.brew.sensory.sliders.strength, undefined);                          // 浓缩强度仅意式
+});
+
+test('eyFor 冷萃优先用出品液重', () => {
+  var w = sampleBrew();
+  w.method = 'coldBrew';
+  w.dose = 50; w.water = 500; w.advanced.tds = 2;
+  w.advanced.coldBrew = { container: '冷泡壶', beverageWeight: 420 };
+  assert.equal(C.eyFor(w), 16.8);           // 420 × 2 / 50
+  w.advanced.coldBrew.beverageWeight = null;
+  assert.equal(C.eyFor(w), 20);             // 回退注水总量 500 × 2 / 50
+});
+
+test('parseBrewForm: 照片 id 引用（≤3 张、仅字符串）', () => {
+  var raw = baseRaw();
+  raw.photos = ['ph-a', 'ph-b', 'ph-c', 'ph-d', 42, null];
+  var r = C.parseBrewForm(raw, { beans: BEANS, gear: GEARS });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.brew.photos, ['ph-a', 'ph-b', 'ph-c']);   // 超出 3 张截断，非字符串过滤
+  var raw2 = baseRaw();
+  var r2 = C.parseBrewForm(raw2, { beans: BEANS, gear: GEARS });
+  assert.deepEqual(r2.brew.photos, []);                        // 未传 → 空数组
+});
+
+test('validateData: photos 可选、须为字符串数组', () => {
+  var ok1 = C.emptyState();
+  ok1.brews = [{ id: 'w1', method: 'espresso', date: '2026-10-20T08:00', photos: ['ph-a', 'ph-b'] }];
+  assert.equal(C.validateData(ok1).ok, true);
+  var ok2 = C.emptyState();                                     // 无 photos 字段：兼容旧数据
+  ok2.brews = [{ id: 'w1', method: 'pourOver', date: '2026-10-20T08:00' }];
+  assert.equal(C.validateData(ok2).ok, true);
+  var bad = C.emptyState();
+  bad.brews = [{ id: 'w1', method: 'espresso', date: 'x', photos: 'ph-a' }];
+  assert.equal(C.validateData(bad).ok, false);
+  var bad2 = C.emptyState();
+  bad2.brews = [{ id: 'w1', method: 'espresso', date: 'x', photos: ['ok', 7] }];
+  assert.equal(C.validateData(bad2).ok, false);
 });
 
 test('parseBrewForm: 校验错误', () => {

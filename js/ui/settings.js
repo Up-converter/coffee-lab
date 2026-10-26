@@ -104,8 +104,15 @@
     });
 
     q('#exp-json').addEventListener('click', function () {
-      download('coffeelab-backup-' + stamp() + '.json', JSON.stringify(store.get(), null, 2), 'application/json');
-      status('#data-status', '✓ 已导出 JSON 备份');
+      var done = function (photos) {
+        var payload = Object.assign({}, store.get());
+        if (photos && photos.length) payload.photos = photos;
+        download('coffeelab-backup-' + stamp() + '.json', JSON.stringify(payload, null, 2), 'application/json');
+        status('#data-status', '✓ 已导出 JSON 备份' + (photos && photos.length ? '（含照片 ' + photos.length + ' 张）' : ''));
+      };
+      if (window.CoffeePhotos) {
+        CoffeePhotos.exportFor(store.get().brews).then(done).catch(function () { done(null); });
+      } else done(null);
     });
     q('#exp-csv').addEventListener('click', function () {
       download('coffeelab-records-' + stamp() + '.csv', '\uFEFF' + C.brewsToCsv(store.get().brews), 'text/csv');
@@ -113,6 +120,7 @@
     });
 
     var pendingImport = null;
+    var pendingImportPhotos = [];   /* 备份里的照片（base64），主数据导入后写回 IndexedDB */
     q('#imp-file').addEventListener('change', function (e) {
       var file = e.target.files[0];
       if (!file) return;
@@ -120,10 +128,13 @@
       reader.onload = function () {
         try {
           pendingImport = JSON.parse(reader.result);
+          pendingImportPhotos = Array.isArray(pendingImport.photos) ? pendingImport.photos : [];
+          delete pendingImport.photos;   /* 照片不入 localStorage 主数据 */
           q('#imp-actions').hidden = false;
-          status('#data-status', '已读取文件，请选择导入方式');
+          status('#data-status', '已读取文件，请选择导入方式' + (pendingImportPhotos.length ? '（含照片 ' + pendingImportPhotos.length + ' 张）' : ''));
         } catch (err) {
           pendingImport = null;
+          pendingImportPhotos = [];
           q('#imp-actions').hidden = true;
           status('#data-status', '导入失败：不是有效的 JSON 文件', true);
         }
@@ -131,21 +142,40 @@
       };
       reader.readAsText(file);
     });
+    /* 照片写回 IndexedDB 后补充提示 */
+    function importPhotosStatus(prefix, replace) {
+      if (window.CoffeePhotos && pendingImportPhotos.length) {
+        CoffeePhotos.importRecords(pendingImportPhotos, { replace: replace })
+          .then(function (r) {
+            status('#data-status', prefix + '；照片新增 ' + r.added + ' 张' + (r.skipped ? '、跳过已有 ' + r.skipped + ' 张' : ''));
+          })
+          .catch(function () { status('#data-status', prefix + '；照片导入失败（记录已导入）', true); });
+      } else status('#data-status', prefix);
+      pendingImportPhotos = [];
+    }
     q('#imp-merge').addEventListener('click', function () {
       if (!pendingImport) return;
       var m = store.importMerge(pendingImport);
       if (!m) { status('#data-status', '导入失败：数据格式或版本不正确', true); }
-      else status('#data-status', '✓ 合并完成：新增豆子 ' + m.addedCount.beans + ' 款、记录 ' + m.addedCount.brews + ' 条；跳过已有 ' + (m.skippedCount.beans + m.skippedCount.brews) + ' 条');
+      else importPhotosStatus('✓ 合并完成：新增豆子 ' + m.addedCount.beans + ' 款、记录 ' + m.addedCount.brews + ' 条；跳过已有 ' + (m.skippedCount.beans + m.skippedCount.brews) + ' 条', false);
       pendingImport = null;
       q('#imp-actions').hidden = true;
     });
     q('#imp-replace').addEventListener('click', function () {
       if (!pendingImport) return;
-      download('coffeelab-backup-before-replace-' + stamp() + '.json', JSON.stringify(store.get(), null, 2), 'application/json');
-      var ok = store.importReplace(pendingImport);
-      status('#data-status', ok ? '✓ 已覆盖导入（原数据已自动备份下载）' : '导入失败：数据格式或版本不正确', !ok);
-      pendingImport = null;
-      q('#imp-actions').hidden = true;
+      var run = function (photos) {
+        /* 覆盖前自动备份（含照片） */
+        var payload = Object.assign({}, store.get());
+        if (photos && photos.length) payload.photos = photos;
+        download('coffeelab-backup-before-replace-' + stamp() + '.json', JSON.stringify(payload, null, 2), 'application/json');
+        var ok = store.importReplace(pendingImport);
+        if (ok) importPhotosStatus('✓ 已覆盖导入（原数据已自动备份下载）', true);
+        else status('#data-status', '导入失败：数据格式或版本不正确', true);
+        pendingImport = null;
+        q('#imp-actions').hidden = true;
+      };
+      if (window.CoffeePhotos) CoffeePhotos.exportFor(store.get().brews).then(run).catch(function () { run(null); });
+      else run(null);
     });
 
     q('#wipe-input').addEventListener('input', function (e) {
@@ -154,6 +184,7 @@
     q('#wipe-btn').addEventListener('click', function () {
       if (!confirm('确认清空全部记录与豆子库？此操作不可撤销。')) return;
       store.clearAll();
+      if (window.CoffeePhotos) CoffeePhotos.deleteAll().catch(function () { /* 照片清理失败不影响主流程 */ });
       status('#data-status', '已清空全部数据');
     });
 

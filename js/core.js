@@ -6,7 +6,8 @@
   'use strict';
 
   var DATA_VERSION = 1;
-  var METHOD_LABEL = { espresso: '意式', pourOver: '手冲' };
+  var METHOD_LABEL = { espresso: '意式', pourOver: '手冲', coldBrew: '冷萃' };
+  var METHODS = ['espresso', 'pourOver', 'coldBrew'];
   var ROAST_LEVELS = ['极浅', '浅', '中浅', '中', '中深', '深'];
   var PROCESSES = ['水洗', '日晒', '蜜处理', '厌氧发酵', '其他'];
   var DRINK_TYPES = ['浓缩', 'Ristretto', 'Lungo', '美式', '拿铁'];
@@ -79,6 +80,18 @@
     return m + ':' + (r < 10 ? '0' : '') + r;
   }
 
+  /* 按冲煮方式格式化时间：意式 27s / 手冲 2:30 / 冷萃 12h（内部一律存秒） */
+  function formatTimeFor(method, sec) {
+    var s = num(sec);
+    if (s === null) return '';
+    if (method === 'espresso') return s + 's';
+    if (method === 'coldBrew') {
+      var h = Math.round((s / 3600) * 10) / 10;
+      return (Math.round(h) === h ? String(h) : h.toFixed(1)) + 'h';
+    }
+    return formatDuration(s);
+  }
+
   function formatPours(pours) {
     if (!pours || !pours.length) return '';
     return pours.map(function (p) { return p.target + 'g@' + p.at; }).join('; ');
@@ -110,8 +123,12 @@
     });
     obj.brews.forEach(function (w, i) {
       if (!isObj(w) || typeof w.id !== 'string' || !w.id ||
-          (w.method !== 'espresso' && w.method !== 'pourOver') || typeof w.date !== 'string' || !w.date) {
+          METHODS.indexOf(w.method) < 0 || typeof w.date !== 'string' || !w.date) {
         errors.push('brews[' + i + '] 缺少 id/method/date');
+      } else if (w.photos !== undefined && w.photos !== null) {
+        /* 照片：可选，主数据里只存 IndexedDB 照片 id 引用 */
+        var badPhoto = !Array.isArray(w.photos) || w.photos.some(function (p) { return typeof p !== 'string'; });
+        if (badPhoto) errors.push('brews[' + i + '].photos 应为字符串数组');
       }
     });
     if (errors.length) return { ok: false, errors: errors };
@@ -160,6 +177,9 @@
     if (method === 'espresso') {
       return { machine: gear.machine || '', grinder: gear.espressoGrinder || '', basket: gear.basket || '' };
     }
+    if (method === 'coldBrew') {
+      return { grinder: gear.pourOverGrinder || '', filterPaper: gear.filterPaper || '' };
+    }
     return { grinder: gear.pourOverGrinder || '', kettle: gear.kettle || '', filterPaper: gear.filterPaper || '' };
   }
 
@@ -168,7 +188,7 @@
     '风味标签', '品鉴笔记', '下次调整计划', '收藏',
     '压力(bar)', '预浸(秒)', '预浸方式', '首滴(秒)', '饮品类型', '布粉压粉', '萃取观察',
     '闷蒸水量(g)', '闷蒸时间(秒)', '分段注水', '出品液重(g)', '手法', '滴滤完成(秒)',
-    '水质', '环境', 'TDS(%)', 'EY(%)', '咖啡机', '磨豆机', '手冲壶', '粉碗', '滤纸'];
+    '水质', '环境', 'TDS(%)', 'EY(%)', '咖啡机', '磨豆机', '手冲壶', '粉碗', '滤纸', '冷萃容器'];
 
   function csvCell(v) {
     if (v === null || v === undefined) return '';
@@ -179,14 +199,16 @@
 
   function eyFor(brew) {
     var adv = brew.advanced || {};
-    var bv = brew.method === 'pourOver' && adv.pourOver && adv.pourOver.beverageWeight != null
-      ? adv.pourOver.beverageWeight : brew.water;
+    var bv = brew.water;
+    if (brew.method === 'pourOver' && adv.pourOver && adv.pourOver.beverageWeight != null) bv = adv.pourOver.beverageWeight;
+    if (brew.method === 'coldBrew' && adv.coldBrew && adv.coldBrew.beverageWeight != null) bv = adv.coldBrew.beverageWeight;
     return calcExtractionYield(bv, adv.tds, brew.dose);
   }
 
   function brewsToCsv(brews) {
     var rows = brews.map(function (w) {
-      var E = (w.advanced && w.advanced.espresso) || {}, P = (w.advanced && w.advanced.pourOver) || {};
+      var E = (w.advanced && w.advanced.espresso) || {}, P = (w.advanced && w.advanced.pourOver) || {},
+          CB = (w.advanced && w.advanced.coldBrew) || {};
       var G = w.gearSnapshot || {};
       var age = w.beanSnapshot && w.beanSnapshot.roastDate ? calcBeanAgeDays(w.date, w.beanSnapshot.roastDate) : null;
       var s = (w.sensory && w.sensory.sliders) || {};
@@ -200,10 +222,11 @@
         w.sensory ? w.sensory.notes : '', w.sensory ? w.sensory.nextStep : '',
         w.favorite ? '是' : '否',
         E.pressure, E.preinfusionTime, E.preinfusionType, E.firstDrip, E.drinkType, E.puckPrep, E.observation,
-        P.bloomWater, P.bloomTime, formatPours(P.pours), P.beverageWeight, P.technique, P.drainTime,
+        P.bloomWater, P.bloomTime, formatPours(P.pours), P.beverageWeight != null ? P.beverageWeight : CB.beverageWeight, P.technique, P.drainTime,
         w.advanced ? w.advanced.water : '', w.advanced ? w.advanced.env : '',
         w.advanced ? w.advanced.tds : '', eyFor(w),
-        G.machine || '', G.grinder || '', G.kettle || '', G.basket || '', G.filterPaper || ''
+        G.machine || '', G.grinder || '', G.kettle || '', G.basket || '', G.filterPaper || '',
+        CB.container || ''
       ];
       return cells.map(csvCell).join(',');
     });
@@ -224,7 +247,7 @@
     ctx = ctx || {};
     var errors = {};
     var method = raw.method;
-    if (method !== 'espresso' && method !== 'pourOver') errors.method = '请选择冲煮方式';
+    if (METHODS.indexOf(method) < 0) errors.method = '请选择冲煮方式';
     var date = str(raw.date);
     if (!date) errors.date = '请填写日期';
 
@@ -252,17 +275,22 @@
     }
     if (Object.keys(errors).length) return { ok: false, errors: errors };
 
-    var A = raw.advanced || {}, E = A.espresso || {}, P = A.pourOver || {};
+    var A = raw.advanced || {}, E = A.espresso || {}, P = A.pourOver || {}, CB = A.coldBrew || {};
     var tds = num(raw.tds);
     var sliders = {};
     slidersFor(method).forEach(function (s) { sliders[s.key] = num((raw.sliders || {})[s.key]); });
     var starsRaw = num(raw.stars);
+    /* 照片引用：只保留字符串 id，最多 3 张（上限由 UI 保证，此处兜底） */
+    var photos = (Array.isArray(raw.photos) ? raw.photos : [])
+      .filter(function (p) { return typeof p === 'string' && p; })
+      .slice(0, 3);
 
     var brew = {
       id: raw.id || newId(),
       method: method, date: date,
       beanId: bean.id || null,
       beanSnapshot: beanSnapshot(bean),
+      photos: photos,
       dose: num(raw.dose), water: num(raw.water),
       time: num(raw.time), temp: num(raw.temp),
       grind: str(raw.grind),
@@ -278,6 +306,9 @@
           pours: (P.pours || []).map(function (p) { return { target: num(p.target), at: str(p.at) }; })
             .filter(function (p) { return p.target !== null; }),
           beverageWeight: num(P.beverageWeight), technique: str(P.technique), drainTime: num(P.drainTime)
+        } : null,
+        coldBrew: method === 'coldBrew' ? {
+          container: str(CB.container), beverageWeight: num(CB.beverageWeight)
         } : null,
         water: str(raw.waterQuality), env: str(raw.env), tds: tds
       },
@@ -316,14 +347,14 @@
   }
 
   var api = {
-    DATA_VERSION: DATA_VERSION, METHOD_LABEL: METHOD_LABEL,
+    DATA_VERSION: DATA_VERSION, METHOD_LABEL: METHOD_LABEL, METHODS: METHODS,
     ROAST_LEVELS: ROAST_LEVELS, PROCESSES: PROCESSES,
     DRINK_TYPES: DRINK_TYPES, FLAVOR_TAGS: FLAVOR_TAGS,
     SENSORY_SLIDERS: SENSORY_SLIDERS, ESPRESSO_EXTRA_SLIDER: ESPRESSO_EXTRA_SLIDER,
     newId: newId, esc: esc, num: num,
     calcRatio: calcRatio, formatRatio: formatRatio,
     calcBeanAgeDays: calcBeanAgeDays, calcExtractionYield: calcExtractionYield,
-    formatDuration: formatDuration, formatPours: formatPours
+    formatDuration: formatDuration, formatTimeFor: formatTimeFor, formatPours: formatPours
     , emptyState: emptyState, validateData: validateData, migrate: migrate,
     mergeImport: mergeImport, beanSnapshot: beanSnapshot, gearSnapshot: gearSnapshot
     , CSV_HEADER: CSV_HEADER, eyFor: eyFor, brewsToCsv: brewsToCsv

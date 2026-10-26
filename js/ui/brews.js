@@ -3,6 +3,56 @@
   'use strict';
   var C = CoffeeCore;
   var listState = { tab: 'all', q: '' };
+  var BADGE_CLASS = { espresso: 'badge-esp', pourOver: 'badge-pour', coldBrew: 'badge-cold' };
+  var METHOD_TOGGLE = { espresso: '☕ 意式浓缩', pourOver: '🫖 手冲', coldBrew: '🧊 冷萃' };
+  /* 切换冲煮方式时暂存已填内容，避免整表重渲染丢失输入 */
+  var draft = null;
+
+  function normalizeMethod(m, fallback) {
+    if (C.METHODS.indexOf(m) >= 0) return m;
+    if (C.METHODS.indexOf(fallback) >= 0) return fallback;
+    return 'espresso';
+  }
+
+  function methodBadge(m) {
+    return '<span class="badge ' + (BADGE_CLASS[m] || 'badge-plain') + '">'
+      + (C.METHOD_LABEL[m] || C.esc(m) || '记录') + '</span>';
+  }
+
+  /* 复用 index.html 常驻 #app-toast 的轻提示（与 settings.js 同款，6s 自动隐藏） */
+  var appToastTimer = null;
+  function appToast(msg, isErr) {
+    var el = document.getElementById('app-toast');
+    if (!el) return;
+    el.textContent = msg || '';
+    el.classList.toggle('err', !!isErr);
+    el.hidden = !msg;
+    if (appToastTimer != null) clearTimeout(appToastTimer);
+    appToastTimer = null;
+    if (msg) appToastTimer = setTimeout(function () { el.hidden = true; appToastTimer = null; }, 6000);
+  }
+
+  /* 全屏看图（详情页照片点开）：点空白处/✕ 关闭，多张可左右切换 */
+  function openLightbox(urls, idx) {
+    var cur = idx || 0;
+    var ov = document.createElement('div');
+    ov.className = 'lightbox';
+    function paint() {
+      ov.innerHTML = '<img src="' + urls[cur] + '" alt="照片 ' + (cur + 1) + '">'
+        + (urls.length > 1
+          ? '<button type="button" class="lb-nav lb-prev" data-lb-go="-1">‹</button>'
+          + '<button type="button" class="lb-nav lb-next" data-lb-go="1">›</button>'
+          + '<div class="lb-count">' + (cur + 1) + ' / ' + urls.length + '</div>' : '')
+        + '<button type="button" class="lb-close" title="关闭">✕</button>';
+    }
+    paint();
+    ov.addEventListener('click', function (e) {
+      var nav = e.target.closest('[data-lb-go]');
+      if (nav) { cur = (cur + Number(nav.getAttribute('data-lb-go')) + urls.length) % urls.length; paint(); return; }
+      if (e.target === ov || e.target.closest('.lb-close')) ov.remove();
+    });
+    document.body.appendChild(ov);
+  }
 
   function starsHtml(n) {
     n = n || 0;
@@ -18,12 +68,13 @@
 
   function cardHtml(w) {
     var ratio = C.formatRatio(w.dose, w.water);
-    var time = w.method === 'espresso' ? (w.time != null ? w.time + 's' : '-') : (C.formatDuration(w.time) || '-');
+    var time = C.formatTimeFor(w.method, w.time) || '-';
     var age = ageOf(w);
     var params = [(w.dose != null ? w.dose : '-') + 'g → ' + (w.water != null ? w.water : '-') + 'g', time, ratio || '-'];
     return '<article class="card brew-card">'
+      + (w.photos && w.photos.length ? '<div class="card-photo" data-photo="' + C.esc(w.photos[0]) + '" hidden></div>' : '')
       + '<div class="card-top">'
-      + '<span class="badge ' + (w.method === 'espresso' ? 'badge-esp' : 'badge-pour') + '">' + C.METHOD_LABEL[w.method] + '</span>'
+      + methodBadge(w.method)
       + (w.beanSnapshot && w.beanSnapshot.roastLevel ? '<span class="badge badge-plain">' + C.esc(w.beanSnapshot.roastLevel) + '</span>' : '')
       + '<span class="fav' + (w.favorite ? ' active' : '') + '" data-fav="' + C.esc(w.id) + '">' + (w.favorite ? '★' : '☆') + '</span>'
       + '</div>'
@@ -37,7 +88,7 @@
 
   function filteredBrews(s) {
     var list = s.brews.slice().sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); });
-    if (listState.tab === 'espresso' || listState.tab === 'pourOver') {
+    if (C.METHODS.indexOf(listState.tab) >= 0) {
       list = list.filter(function (w) { return w.method === listState.tab; });
     } else if (listState.tab === 'fav') {
       list = list.filter(function (w) { return w.favorite; });
@@ -53,10 +104,25 @@
     return list;
   }
 
-  var TABS = [{ k: 'all', t: '全部' }, { k: 'espresso', t: '意式' }, { k: 'pourOver', t: '手冲' }, { k: 'fav', t: '⭐收藏' }];
+  var TABS = [{ k: 'all', t: '全部' }].concat(
+    C.METHODS.map(function (m) { return { k: m, t: C.METHOD_LABEL[m] }; })
+  ).concat([{ k: 'fav', t: '⭐收藏' }]);
 
   /* 页面内部重渲染时也换新容器，事件监听不叠加 */
   function mount(rootEl) { rootEl.innerHTML = ''; var d = document.createElement('div'); rootEl.appendChild(d); return d; }
+
+  /* 列表卡片首图横幅：异步取 URL 后填充（照片缺失则移除占位） */
+  function fillCardPhotos(root) {
+    if (!window.CoffeePhotos) return;
+    root.querySelectorAll('.card-photo[data-photo]').forEach(function (el) {
+      CoffeePhotos.urlFor(el.getAttribute('data-photo')).then(function (url) {
+        if (!url) { el.remove(); return; }
+        if (!el.isConnected) return;
+        el.innerHTML = '<img src="' + url + '" alt="">';
+        el.hidden = false;
+      });
+    });
+  }
 
   function renderList(rootEl) {
     var root = mount(rootEl);
@@ -72,6 +138,7 @@
         ? '<div class="card-grid">' + list.map(cardHtml).join('') + '</div>'
         : '<div class="empty">还没有记录，点右下角 ＋ 记第一杯 ☕</div>')
       + '<a class="fab" href="#/brew/new" title="新建记录">＋</a>';
+    fillCardPhotos(root);
 
     root.querySelector('#search').addEventListener('input', function (e) {
       listState.q = e.target.value;
@@ -88,6 +155,7 @@
           ? '<div class="card-grid">' + fresh.map(cardHtml).join('') + '</div>'
           : '<div class="empty">' + (store.get().brews.length === 0 ? '还没有记录，点右下角 ＋ 记第一杯 ☕' : '没有匹配的记录') + '</div>';
       }
+      fillCardPhotos(root);
     });
     root.addEventListener('click', function (e) {
       var tab = e.target.closest('[data-tab]');
@@ -107,20 +175,23 @@
     if (!w) { root.innerHTML = '<div class="empty">记录不存在，<a href="#/brews">返回列表</a></div>'; return; }
     var s = w.beanSnapshot || {};
     var age = s.roastDate ? C.calcBeanAgeDays(w.date, s.roastDate) : null;
-    var E = (w.advanced && w.advanced.espresso) || {}, P = (w.advanced && w.advanced.pourOver) || {};
+    var E = (w.advanced && w.advanced.espresso) || {}, P = (w.advanced && w.advanced.pourOver) || {},
+        CB = (w.advanced && w.advanced.coldBrew) || {};
     var G = w.gearSnapshot || {};
     var ey = C.eyFor(w);
     var isPour = w.method === 'pourOver';
+    var isEsp = w.method === 'espresso';
 
     var cells = [
       { k: '粉量', v: w.dose != null ? w.dose + 'g' : '' },
-      { k: isPour ? '注水总量' : '液重', v: w.water != null ? w.water + 'g' : '' },
+      { k: isEsp ? '液重' : '注水总量', v: w.water != null ? w.water + 'g' : '' },
       { k: '比例', v: C.formatRatio(w.dose, w.water) },
-      { k: '时间', v: isPour ? C.formatDuration(w.time) : (w.time != null ? w.time + 's' : '') },
+      { k: '时间', v: C.formatTimeFor(w.method, w.time) },
       { k: '水温', v: w.temp != null ? w.temp + '℃' : '' },
       { k: '研磨刻度', v: w.grind || '' }
     ];
     if (isPour) cells.push({ k: '滤杯', v: w.dripper || '' });
+    if (CB.container) cells.push({ k: '容器', v: CB.container });
     if (ey != null) cells.push({ k: '萃取率 EY', v: ey + '%' });
 
     var gearBits = [];
@@ -131,24 +202,27 @@
     if (G.filterPaper) gearBits.push('滤纸 ' + G.filterPaper);
 
     var advRows = '';
-    if (!isPour) {
+    if (isEsp) {
       advRows = dlRow('峰值压力', E.pressure != null ? E.pressure + ' bar' : '')
         + dlRow('预浸', (E.preinfusionTime != null ? E.preinfusionTime + 's' : '') + (E.preinfusionType ? ' · ' + E.preinfusionType : ''))
         + dlRow('首滴时间', E.firstDrip != null ? E.firstDrip + 's' : '')
         + dlRow('饮品类型', E.drinkType || '') + dlRow('布粉压粉', E.puckPrep || '')
         + dlRow('萃取观察', E.observation || '');
-    } else {
+    } else if (isPour) {
       advRows = dlRow('闷蒸', (P.bloomWater != null ? P.bloomWater + 'g' : '') + (P.bloomTime != null ? ' · ' + P.bloomTime + 's' : ''))
         + dlRow('分段注水', C.formatPours(P.pours))
         + dlRow('出品液重', P.beverageWeight != null ? P.beverageWeight + 'g' : '')
         + dlRow('手法', P.technique || '')
         + dlRow('滴滤完成', P.drainTime != null ? P.drainTime + 's' : '');
+    } else {
+      advRows = dlRow('容器 / 方式', CB.container || '')
+        + dlRow('出品液重', CB.beverageWeight != null ? CB.beverageWeight + 'g' : '');
     }
     advRows += dlRow('水质', w.advanced && w.advanced.water)
       + dlRow('环境', w.advanced && w.advanced.env)
       + dlRow('TDS', w.advanced && w.advanced.tds != null ? w.advanced.tds + '%' : '');
 
-    var sliders = C.SENSORY_SLIDERS.concat(isPour ? [] : [C.ESPRESSO_EXTRA_SLIDER]);
+    var sliders = C.SENSORY_SLIDERS.concat(isEsp ? [C.ESPRESSO_EXTRA_SLIDER] : []);
     var barsHtml = sliders.map(function (sl) {
       var v = (w.sensory.sliders || {})[sl.key];
       var pct = v != null && v > 0 ? (v / 10) * 100 : 0;
@@ -161,7 +235,7 @@
 
     root.innerHTML =
       '<div class="detail-hero">'
-      + '<div class="badges"><span class="badge ' + (isPour ? 'badge-pour' : 'badge-esp') + '">' + C.METHOD_LABEL[w.method] + '</span>'
+      + '<div class="badges">' + methodBadge(w.method)
       + (s.roastLevel ? '<span class="badge badge-plain">' + C.esc(s.roastLevel) + '</span>' : '')
       + (w.favorite ? '<span class="badge badge-plain">⭐ 收藏</span>' : '') + '</div>'
       + '<h2>' + C.esc(s.name || '未命名') + '</h2>'
@@ -177,6 +251,7 @@
       + '<div class="param-grid">' + cells.map(function (c) {
         return '<div class="param-cell"><div class="k">' + c.k + '</div><div class="v">' + C.esc(c.v || '–') + '</div></div>';
       }).join('') + '</div>'
+      + ((w.photos && w.photos.length) ? '<div class="photo-strip" id="photo-strip"></div>' : '')
       + (advRows ? '<div class="group-title">进阶参数</div><dl class="dl-fields">' + advRows + '</dl>' : '')
       + '<div class="group-title">风味 <span class="stars">' + starsHtml(w.sensory.stars) + '</span></div>'
       + '<div class="note-box">' + barsHtml + (tags ? '<div style="margin-top:10px">' + tags + '</div>' : '') + '</div>'
@@ -186,8 +261,28 @@
 
     root.querySelector('#d-fav').addEventListener('click', function () { store.toggleFavorite(w.id); });
     root.querySelector('#d-del').addEventListener('click', function () {
-      if (confirm('确定删除这条记录？')) { store.deleteBrew(w.id); CoffeeApp.go('#/brews'); }
+      if (confirm('确定删除这条记录？')) {
+        store.deleteBrew(w.id);
+        if (window.CoffeePhotos) CoffeePhotos.deleteByBrew(w.id);   /* 同步清理照片 */
+        CoffeeApp.go('#/brews');
+      }
     });
+
+    /* 照片墙：异步取 Blob URL，点开全屏查看 */
+    var strip = root.querySelector('#photo-strip');
+    if (strip && window.CoffeePhotos) {
+      Promise.all(w.photos.map(function (id) { return CoffeePhotos.urlFor(id); })).then(function (urls) {
+        urls = urls.filter(Boolean);
+        if (!urls.length || !strip.isConnected) { if (strip.isConnected) strip.remove(); return; }
+        strip.innerHTML = urls.map(function (u, i) {
+          return '<button type="button" class="strip-thumb" data-lb="' + i + '"><img src="' + u + '" alt="照片 ' + (i + 1) + '"></button>';
+        }).join('');
+        strip.addEventListener('click', function (e) {
+          var t = e.target.closest('[data-lb]');
+          if (t) openLightbox(urls, Number(t.getAttribute('data-lb')));
+        });
+      });
+    }
   }
 
   /* ---------- 表单（新建 / 编辑 / 复制为新实验） ---------- */
@@ -204,7 +299,8 @@
     var base = null, method;
     if (editBrew) { base = editBrew; method = editBrew.method; }
     else {
-      method = opts.method === 'pourOver' ? 'pourOver' : 'espresso';
+      /* 未指定方式时沿用上次使用的冲煮方式，减少误记成意式 */
+      method = normalizeMethod(opts.method, s.settings.lastMethod);
       if (opts.fromId) {
         base = s.brews.filter(function (w) { return w.id === opts.fromId; })[0] || null;
         if (base) method = base.method;
@@ -215,11 +311,23 @@
     }
     var E = (base && base.advanced && base.advanced.espresso) || null;
     var P = (base && base.advanced && base.advanced.pourOver) || null;
+    var CB = (base && base.advanced && base.advanced.coldBrew) || null;
     var AD = (base && base.advanced) || {};
     function val(key) { return base && base[key] != null ? base[key] : ''; }
     function eval_(k) { return E && E[k] != null ? E[k] : ''; }
     function pval(k) { return P && P[k] != null ? P[k] : ''; }
-    var isPour = method === 'pourOver';
+    function cval(k) { return CB && CB[k] != null ? CB[k] : ''; }
+    var isEsp = method === 'espresso', isPour = method === 'pourOver', isCold = method === 'coldBrew';
+    /* 时间：内部统一存秒，冷萃表单按小时显示/输入 */
+    function timeVal() {
+      var t = val('time');
+      if (t === '') return '';
+      return isCold ? (Math.round(t / 360) / 10) : t;
+    }
+    /* 照片：{id}=已存 IndexedDB；{blob,url}=选图待存（提交时才写入）。
+     * 编辑时移除的已有照片先记在 removedPhotoIds，提交成功才真正删除。 */
+    var photos = editBrew ? (editBrew.photos || []).map(function (id) { return { id: id }; }) : [];
+    var removedPhotoIds = [];
     var wantBeanId = editBrew ? editBrew.beanId : (base ? base.beanId : null);
     /* 豆子已被删除时回退为"直接输入"模式，快照信息仍可用于预填 */
     if (wantBeanId && !s.beans.some(function (b) { return b.id === wantBeanId; })) wantBeanId = null;
@@ -237,7 +345,7 @@
     var datalistRoast = C.ROAST_LEVELS.map(function (r) { return '<option value="' + r + '">'; }).join('');
     var datalistDrippers = unique(s.brews.map(function (w) { return w.dripper; })).map(function (d) { return '<option value="' + C.esc(d) + '">'; }).join('');
 
-    var sliders = C.SENSORY_SLIDERS.concat(isPour ? [] : [C.ESPRESSO_EXTRA_SLIDER]);
+    var sliders = C.SENSORY_SLIDERS.concat(isEsp ? [C.ESPRESSO_EXTRA_SLIDER] : []);
     var sliderHtml = sliders.map(function (sl) {
       var v0 = (editBrew && editBrew.sensory.sliders[sl.key] != null) ? editBrew.sensory.sliders[sl.key] : '';
       return '<div class="slider-row"><span class="slider-label">' + sl.label + '</span>'
@@ -291,11 +399,16 @@
       + '<div class="field wide"><span class="label">分段注水计划</span><div class="pour-rows" id="pour-rows">' + pours.map(pourRow).join('') + '</div>'
       + '<button type="button" class="btn btn-ghost" id="pour-add" style="margin-top:8px">＋ 添加一段</button></div>';
 
+    var advCold =
+      '<div class="field"><span class="label">容器 / 方式</span><input id="a-container" class="input" value="' + C.esc(cval('container') || '') + '" placeholder="如 冷泡壶 / 冰滴塔 / Mason 罐"></div>'
+      + '<div class="field"><span class="label">出品液重 (g)</span><input id="a-cold-beverage" class="input" type="number" value="' + cval('beverageWeight') + '"></div>';
+
     root.innerHTML = '<form class="form-card" id="brew-form" novalidate>'
       + '<div class="page-head"><h2>' + (editBrew ? '编辑记录' : '记一杯') + '</h2></div>'
       + (editBrew ? '' : '<div class="method-toggle">'
-        + '<a class="chip' + (isPour ? '' : ' on') + '" href="#/brew/new?method=espresso">☕ 意式浓缩</a>'
-        + '<a class="chip' + (isPour ? ' on' : '') + '" href="#/brew/new?method=pourOver">🫖 手冲</a></div>')
+        + C.METHODS.map(function (m) {
+          return '<button type="button" class="chip' + (method === m ? ' on' : '') + '" data-method="' + m + '">' + METHOD_TOGGLE[m] + '</button>';
+        }).join('') + '</div>')
       + '<div class="err-box" id="form-errors"></div>'
 
       + '<div class="form-section"><h4>① 咖啡豆</h4>'
@@ -317,8 +430,8 @@
       + '<div class="field-row">'
       + '<div class="field"><span class="label">日期时间</span><input id="f-date" class="input" type="datetime-local" value="' + C.esc(editBrew ? editBrew.date : nowLocal()) + '"></div>'
       + '<div class="field"><span class="label">粉量 (g)</span><input id="f-dose" class="input" type="number" inputmode="decimal" step="0.1" value="' + val('dose') + '"></div>'
-      + '<div class="field"><span class="label">' + (isPour ? '注水总量 (g)' : '液重 (g)') + '</span><input id="f-water" class="input" type="number" inputmode="decimal" step="0.1" value="' + val('water') + '"></div>'
-      + '<div class="field"><span class="label">萃取时间 (秒)</span><input id="f-time" class="input" type="number" inputmode="decimal" step="0.1" value="' + val('time') + '"></div>'
+      + '<div class="field"><span class="label">' + (isEsp ? '液重 (g)' : '注水总量 (g)') + '</span><input id="f-water" class="input" type="number" inputmode="decimal" step="0.1" value="' + val('water') + '"></div>'
+      + '<div class="field"><span class="label">' + (isCold ? '萃取时间 (小时)' : '萃取时间 (秒)') + '</span><input id="f-time" class="input" type="number" inputmode="decimal" step="' + (isCold ? '0.5' : '0.1') + '" value="' + timeVal() + '"' + (isCold ? ' placeholder="如 12"' : '') + '></div>'
       + '<div class="field"><span class="label">水温 (℃)</span><input id="f-temp" class="input" type="number" inputmode="decimal" step="0.1" value="' + val('temp') + '"></div>'
       + '<div class="field"><span class="label">研磨刻度</span><input id="f-grind" class="input" value="' + C.esc(val('grind') || '') + '" placeholder="如 Niche 12 / C40 24格"></div>'
       + (isPour ? '<div class="field"><span class="label">滤杯</span><input id="f-dripper" class="input" list="drippers" value="' + C.esc(val('dripper') || '') + '" placeholder="V60-02 / Kalita 155"></div>' : '')
@@ -328,10 +441,16 @@
       + '</div>'
 
       + '<details class="adv form-section"><summary>③ 更多参数（选填）</summary>'
-      + '<div class="field-row">' + (isPour ? advPour : advEsp) + advCommon + '</div>'
+      + '<div class="field-row">' + (isPour ? advPour : (isCold ? advCold : advEsp)) + advCommon + '</div>'
       + '</details>'
 
-      + '<div class="form-section"><h4>④ 风味与计划</h4>'
+      + '<div class="form-section"><h4>④ 照片（选填，最多 3 张）</h4>'
+      + '<div class="photo-tiles" id="photo-tiles"></div>'
+      + '<input type="file" id="photo-file" accept="image/*" multiple hidden>'
+      + '<div class="hint" id="photo-hint" style="margin-top:6px;min-height:14px"></div>'
+      + '</div>'
+
+      + '<div class="form-section"><h4>⑤ 风味与计划</h4>'
       + sliderHtml
       + '<div class="field-row" style="margin-top:12px">'
       + '<div class="field"><span class="label">总体星级</span><div id="star-input">' + starBtns() + '</div></div>'
@@ -348,6 +467,91 @@
       + '</div></form>';
 
     function q(sel) { return root.querySelector(sel); }
+    if (!opts.switched) draft = null;   /* 非切换进入的渲染 = 全新表单会话，旧草稿作废 */
+    if (draft && draft.photos) photos = draft.photos;   /* 切换方式时照片随草稿带过去 */
+
+    /* 照片缩略图（含"添加"占位块）；已存照片的图异步回填 */
+    function renderPhotoTiles() {
+      var box = q('#photo-tiles');
+      if (!box) return;
+      function tileHtml(i, url) {
+        return '<div class="photo-tile' + (url ? '' : ' loading') + '" data-pidx="' + i + '">'
+          + (url ? '<img src="' + url + '" alt="">' : '')
+          + '<button type="button" class="photo-del" data-pdel="' + i + '" title="移除此照片">✕</button></div>';
+      }
+      var html = '';
+      photos.forEach(function (p, i) { html += tileHtml(i, p.url || null); });
+      if (photos.length < maxPhotos()) html += '<button type="button" class="photo-add" id="photo-add">📷<span>拍照 / 选图</span></button>';
+      box.innerHTML = html;
+      if (window.CoffeePhotos) {
+        photos.forEach(function (p, i) {
+          if (!p.url && p.id) {
+            CoffeePhotos.urlFor(p.id).then(function (url) {
+              if (!url || !box.isConnected) return;
+              var tile = box.querySelector('[data-pidx="' + i + '"]');
+              if (tile) tile.outerHTML = tileHtml(i, url);
+            });
+          }
+        });
+      }
+    }
+    function maxPhotos() { return (window.CoffeePhotos && CoffeePhotos.MAX_PHOTOS) || 3; }
+
+    /* 切换冲煮方式时：暂存当前已填内容 → 重渲染 → 按新方式恢复。
+     * values 与上一份草稿合并，来回切换也不丢已填字段；提交或离开表单时整体作废。 */
+    function harvestDraft() {
+      var values = {};
+      root.querySelectorAll('input[id], select[id], textarea[id]').forEach(function (el) {
+        values[el.id] = (el.type === 'checkbox') ? el.checked : el.value;
+      });
+      var det = root.querySelector('details.adv'), bm = root.querySelector('#bean-manual');
+      draft = {
+        fromMethod: method,
+        values: Object.assign({}, draft && draft.values, values),
+        photos: photos,
+        tags: Array.prototype.map.call(root.querySelectorAll('#tag-chips .tag-chip.on'), function (t) { return t.getAttribute('data-tag'); }),
+        stars: Number((root.querySelector('#f-stars') || {}).value) || 0,
+        openAdv: det ? det.open : null,
+        beanManualHidden: bm ? bm.hidden : null
+      };
+    }
+    function applyDraft() {
+      var d = draft;
+      if (!d) return;
+      Object.keys(d.values).forEach(function (id) {
+        var el = root.querySelector('#' + id);
+        if (!el) return;
+        var v = d.values[id];
+        if (id === 'f-time' && v !== '') {
+          /* 秒 ⇄ 小时：按原方式与新方式的单位换算 */
+          var sec = d.fromMethod === 'coldBrew' ? Number(v) * 3600 : Number(v);
+          el.value = isCold ? (Math.round(sec / 360) / 10) : Math.round(sec);
+        } else if (el.type === 'checkbox') el.checked = !!v;
+        else el.value = v;
+        if (el.type === 'range') {
+          var out = el.parentElement.querySelector('.slider-val');
+          if (out) out.textContent = el.value === '' ? '-' : el.value;
+        }
+      });
+      if (d.beanManualHidden != null) { var bm = root.querySelector('#bean-manual'); if (bm) bm.hidden = d.beanManualHidden; }
+      if (d.openAdv != null) { var det = root.querySelector('details.adv'); if (det) det.open = d.openAdv; }
+      (d.tags || []).forEach(function (t) {
+        var chip = root.querySelector('.tag-chip[data-tag="' + String(t).replace(/["\\]/g, '\\$&') + '"]');
+        if (chip) chip.classList.add('on');
+      });
+      if (d.stars > 0) {
+        var hid = root.querySelector('#f-stars');
+        if (hid) {
+          hid.value = d.stars;
+          root.querySelectorAll('#star-input .star-btn').forEach(function (b) {
+            b.classList.toggle('on', Number(b.getAttribute('data-star')) <= d.stars);
+          });
+        }
+      }
+    }
+    applyDraft();
+    renderPhotoTiles();
+
     function updateAge() {
       var beanId = q('#f-bean').value;
       var bean = beanId ? s.beans.filter(function (b) { return b.id === beanId; })[0] : null;
@@ -368,6 +572,22 @@
         updateAge();
       }
       if (e.target.id === 'f-roast-date' || e.target.id === 'f-date') updateAge();
+      if (e.target.id === 'photo-file' && e.target.files && e.target.files.length) {
+        var files = Array.prototype.slice.call(e.target.files);
+        e.target.value = '';                                  /* 允许再次选同一文件 */
+        var hint = q('#photo-hint');
+        if (!window.CoffeePhotos) { if (hint) hint.textContent = '照片功能不可用（浏览器不支持 IndexedDB）'; return; }
+        var room = maxPhotos() - photos.length;
+        if (files.length > room) {
+          if (hint) hint.textContent = '最多 ' + maxPhotos() + ' 张，已忽略多余的 ' + (files.length - room) + ' 张';
+        } else if (hint) hint.textContent = '';
+        files.slice(0, Math.max(0, room)).forEach(function (f) {
+          CoffeePhotos.compress(f)
+            .then(function (blob) { photos.push({ blob: blob, url: URL.createObjectURL(blob) }); })
+            .catch(function () { if (hint) hint.textContent = '有图片无法读取，已跳过'; })
+            .then(renderPhotoTiles);
+        });
+      }
     });
     root.addEventListener('input', function (e) {
       if (e.target.id === 'f-dose' || e.target.id === 'f-water') updateRatio();
@@ -377,6 +597,27 @@
       }
     });
     root.addEventListener('click', function (e) {
+      if (e.target.closest('#photo-add')) { var pf = q('#photo-file'); if (pf) pf.click(); return; }
+      var pdel = e.target.closest('[data-pdel]');
+      if (pdel) {
+        var pidx = Number(pdel.getAttribute('data-pdel'));
+        var removed = photos.splice(pidx, 1)[0];
+        if (removed && removed.id) removedPhotoIds.push(removed.id);   /* 提交时才真正删除 */
+        renderPhotoTiles();
+        return;
+      }
+      var mchip = e.target.closest('[data-method]');
+      if (mchip && !editBrew) {
+        var m = mchip.getAttribute('data-method');
+        if (m !== method && C.METHODS.indexOf(m) >= 0) {
+          harvestDraft();
+          /* 换新容器再重渲染，事件监听不叠加（与 renderList 的 mount 约定一致） */
+          var fresh = document.createElement('div');
+          root.replaceWith(fresh);
+          renderForm(fresh, { fromId: opts.fromId, method: m, switched: true });
+        }
+        return;
+      }
       var star = e.target.closest('[data-star]');
       if (star) {
         var n = Number(star.getAttribute('data-star'));
@@ -402,6 +643,7 @@
       if (e.target.closest('#btn-del') && editBrew) {
         if (confirm('确定删除这条记录？')) {
           store.deleteBrew(editBrew.id);
+          if (window.CoffeePhotos) CoffeePhotos.deleteByBrew(editBrew.id);   /* 同步清理照片 */
           CoffeeApp.go('#/brews');
         }
       }
@@ -412,6 +654,9 @@
       var slidersRaw = {};
       sliders.forEach(function (sl) { var el = q('#s-' + sl.key); slidersRaw[sl.key] = el ? el.value : ''; });
       var g = function (id) { var el = q(id); return el ? el.value : ''; };
+      /* 冷萃表单按小时输入，保存前换算为秒 */
+      var timeRaw = g('#f-time');
+      if (isCold && timeRaw !== '') timeRaw = String(Math.round(Number(timeRaw) * 3600));
       var raw = {
         method: method,
         date: g('#f-date'),
@@ -420,14 +665,15 @@
         roastLevel: q('#bean-manual').hidden ? '' : g('#f-roast'),
         roastDate: q('#bean-manual').hidden ? '' : g('#f-roast-date'),
         saveBean: !q('#bean-manual').hidden && q('#f-save-bean').checked,
-        dose: g('#f-dose'), water: g('#f-water'), time: g('#f-time'), temp: g('#f-temp'),
+        dose: g('#f-dose'), water: g('#f-water'), time: timeRaw, temp: g('#f-temp'),
         grind: g('#f-grind'), dripper: g('#f-dripper'),
         advanced: {
           espresso: { pressure: g('#a-pressure'), preinfusionTime: g('#a-preinfusion-time'), preinfusionType: g('#a-preinfusion-type'), firstDrip: g('#a-first-drip'), puckPrep: g('#a-puck-prep'), drinkType: g('#a-drink-type'), observation: g('#a-observation') },
           pourOver: { bloomWater: g('#a-bloom-water'), bloomTime: g('#a-bloom-time'), beverageWeight: g('#a-beverage'), technique: g('#a-technique'), drainTime: g('#a-drain'),
             pours: Array.prototype.map.call(root.querySelectorAll('.pour-row'), function (r) {
               return { target: r.querySelector('.pour-g').value, at: r.querySelector('.pour-t').value };
-            }) }
+            }) },
+          coldBrew: { container: g('#a-container'), beverageWeight: g('#a-cold-beverage') }
         },
         waterQuality: g('#a-water'), env: g('#a-env'), tds: g('#a-tds'),
         sliders: slidersRaw,
@@ -435,6 +681,7 @@
         tags: Array.prototype.map.call(root.querySelectorAll('#tag-chips .tag-chip.on'), function (t) { return t.getAttribute('data-tag'); }),
         notes: g('#f-notes'), nextStep: g('#f-next'),
         favorite: q('#f-favorite').checked,
+        photos: photos.filter(function (p) { return p.id; }).map(function (p) { return p.id; }),
         id: editBrew ? editBrew.id : undefined,
         createdAt: editBrew ? editBrew.createdAt : undefined
       };
@@ -444,10 +691,25 @@
         q('#form-errors').scrollIntoView({ behavior: 'smooth', block: 'center' });
         return;
       }
-      if (res.newBean) store.addBean(res.newBean);
-      if (editBrew) store.updateBrew(editBrew.id, res.brew);
-      else store.addBrew(res.brew);
-      CoffeeApp.go('#/brew/' + res.brew.id);
+      /* 照片落库：先删已移除的已有照片，再按显示顺序写待存 Blob；失败不阻断记录保存 */
+      var persistPhotos = window.CoffeePhotos
+        ? (removedPhotoIds.length ? CoffeePhotos.deleteIds(removedPhotoIds) : Promise.resolve()).then(function () {
+            return Promise.all(photos.map(function (p) {
+              if (p.id) return Promise.resolve(p.id);
+              return CoffeePhotos.save(res.brew.id, p.blob).then(function (rec) { return rec.id; });
+            }));
+          })
+        : Promise.resolve(null);
+      persistPhotos.catch(function () { return null; }).then(function (ids) {
+        if (ids) res.brew.photos = ids;                    /* 保持与缩略图一致的顺序 */
+        else if (photos.some(function (p) { return !p.id; })) appToast('⚠️ 照片保存失败，记录已保存（不含新照片）', true);
+        if (res.newBean) store.addBean(res.newBean);
+        if (editBrew) store.updateBrew(editBrew.id, res.brew);
+        else store.addBrew(res.brew);
+        draft = null;                                /* 已提交，切换草稿作废 */
+        store.setSettings({ lastMethod: method });   /* 下次记一杯默认沿用本次方式 */
+        CoffeeApp.go('#/brew/' + res.brew.id);
+      });
     });
   }
 

@@ -62,6 +62,7 @@ button { font-family: inherit; }
 .badge { font-size: 11px; padding: 3px 9px; border-radius: 999px; }
 .badge-esp { background: #3A2A1E; color: #F0E2C8; }
 .badge-pour { background: var(--green-mid); color: #EAF1EC; }
+.badge-cold { background: #3E5C76; color: #EAF1F7; }
 .badge-plain { background: #EFEAE0; color: var(--brown); }
 .fav { margin-left: auto; cursor: pointer; font-size: 18px; color: #C9C4B4; }
 .fav.active { color: var(--amber); }
@@ -140,6 +141,37 @@ input[type=range].c-green { accent-color: var(--green-mid); }
 .pour-rows { display: flex; flex-direction: column; gap: 8px; }
 .pour-row { display: grid; grid-template-columns: 1fr 26px 1fr 34px; gap: 8px; align-items: center; }
 .pour-del { border: none; background: none; color: var(--danger); font-size: 17px; cursor: pointer; }
+
+/* 照片：表单缩略图 / 列表横幅 / 详情照片墙 / 全屏查看 */
+.photo-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.photo-tile { position: relative; aspect-ratio: 1 / 1; border-radius: 10px; overflow: hidden;
+  background: #EFECE2; border: 1px solid var(--line); }
+.photo-tile.loading::after { content: '…'; position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; color: var(--muted); font-size: 15px; }
+.photo-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-del { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; border-radius: 50%;
+  border: none; background: rgba(30, 58, 47, .72); color: #F5F3EC; font-size: 13px; line-height: 1; cursor: pointer; }
+.photo-add { aspect-ratio: 1 / 1; border: 1.5px dashed var(--line); border-radius: 10px; background: #FBFAF5;
+  color: var(--green-mid); font-size: 20px; cursor: pointer;
+  display: flex; flex-direction: column; gap: 4px; align-items: center; justify-content: center; }
+.photo-add span { font-size: 11px; letter-spacing: .5px; }
+.card-photo { margin: -16px -16px 12px; border-radius: 15px 15px 0 0; overflow: hidden; aspect-ratio: 4 / 3; background: #EFECE2; }
+.card-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-strip { display: flex; gap: 10px; margin: 16px 0 4px; overflow-x: auto; padding-bottom: 4px; }
+.strip-thumb { flex-shrink: 0; width: 96px; height: 96px; border-radius: 12px; overflow: hidden;
+  border: 1px solid var(--line); padding: 0; cursor: pointer; background: #EFECE2; }
+.strip-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.lightbox { position: fixed; inset: 0; z-index: 100; background: rgba(20, 26, 23, .94);
+  display: flex; align-items: center; justify-content: center; }
+.lightbox img { max-width: 94vw; max-height: 88vh; object-fit: contain; border-radius: 6px; }
+.lb-close { position: absolute; top: calc(12px + env(safe-area-inset-top)); right: 14px; width: 38px; height: 38px;
+  border-radius: 50%; border: none; background: rgba(245, 243, 236, .16); color: #F5F3EC; font-size: 17px; cursor: pointer; }
+.lb-nav { position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; border-radius: 50%;
+  border: none; background: rgba(245, 243, 236, .16); color: #F5F3EC; font-size: 26px; cursor: pointer; }
+.lb-prev { left: 10px; }
+.lb-next { right: 10px; }
+.lb-count { position: absolute; bottom: calc(16px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%);
+  color: #F5F3EC; font-size: 13px; letter-spacing: 1px; opacity: .8; }
 
 /* 详情页 */
 .detail-hero { background: var(--green); color: var(--cream); border-radius: 16px; padding: 20px; }

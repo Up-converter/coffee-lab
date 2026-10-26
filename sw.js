@@ -1,11 +1,12 @@
-/* CoffeeLab Service Worker — App Shell 缓存优先，发版改 CACHE 版本号即可失效 */
-var CACHE = 'coffeelab-v2';
+/* CoffeeLab Service Worker — 网络优先 + 离线回退缓存；发版改 CACHE 版本号即可整体失效 */
+var CACHE = 'coffeelab-v4';
 var ASSETS = [
   './',
   './index.html',
   './css/style.css',
   './js/core.js',
   './js/store.js',
+  './js/photos.js',
   './js/ui/app.js',
   './js/ui/beans.js',
   './js/ui/brews.js',
@@ -39,8 +40,17 @@ self.addEventListener('activate', function (e) {
 self.addEventListener('fetch', function (e) {
   if (e.request.method !== 'GET') return;
   e.respondWith(
-    caches.match(e.request, { ignoreSearch: true }).then(function (hit) {
-      return hit || fetch(e.request);
+    /* 网络优先且绕过 HTTP 缓存：在线时总能拿到最新代码，避免停留在旧版本；失败（离线）再回退缓存 */
+    fetch(e.request, { cache: 'no-store' }).then(function (res) {
+      if (res && res.ok && new URL(e.request.url).origin === location.origin) {
+        var copy = res.clone();
+        caches.open(CACHE).then(function (c) { c.put(e.request, copy); });
+      }
+      return res;
+    }).catch(function () {
+      return caches.match(e.request, { ignoreSearch: true }).then(function (hit) {
+        return hit || Response.error();
+      });
     })
   );
 });
