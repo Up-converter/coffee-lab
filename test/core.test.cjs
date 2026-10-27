@@ -373,6 +373,37 @@ test('validateData: photos 可选、须为字符串数组', () => {
   assert.equal(C.validateData(bad2).ok, false);
 });
 
+test('parseBrewForm / validateData: 做法 drink 字段', () => {
+  var raw = baseRaw();
+  raw.drink = '冰美式';
+  var r = C.parseBrewForm(raw, { beans: BEANS, gear: GEARS });
+  assert.equal(r.brew.drink, '冰美式');
+  var raw2 = baseRaw();
+  assert.equal(C.parseBrewForm(raw2, { beans: BEANS, gear: GEARS }).brew.drink, null);   // 未选 → null
+  // DRINK_OPTIONS 按方式分组且非空
+  C.METHODS.forEach(function (m) {
+    assert.ok(Array.isArray(C.DRINK_OPTIONS[m]) && C.DRINK_OPTIONS[m].length >= 2, m);
+  });
+  // validateData：可选字符串；非字符串报错；与 photos 检查互不遮蔽
+  var ok = C.emptyState();
+  ok.brews = [{ id: 'w1', method: 'espresso', date: 'x', photos: ['p1'], drink: '拿铁' }];
+  assert.equal(C.validateData(ok).ok, true);
+  var bad = C.emptyState();
+  bad.brews = [{ id: 'w1', method: 'espresso', date: 'x', photos: ['p1'], drink: 42 }];
+  assert.equal(C.validateData(bad).ok, false);
+  // CSV：做法写入"饮品类型"列
+  var w = r.brew;
+  w.date = '2026-10-20T09:00';
+  var row = C.brewsToCsv([w]).split('\n')[1];
+  assert.ok(row.indexOf('冰美式') >= 0);
+  // 老记录：无 drink 但有 advanced.espresso.drinkType → CSV 仍带出
+  var legacy = C.parseBrewForm(baseRaw(), { beans: BEANS, gear: GEARS }).brew;
+  legacy.date = '2026-10-20T09:00';
+  legacy.drink = null;
+  legacy.advanced.espresso.drinkType = '浓缩';
+  assert.ok(C.brewsToCsv([legacy]).split('\n')[1].indexOf('浓缩') >= 0);
+});
+
 test('parseBrewForm: 校验错误', () => {
   var raw = baseRaw(); raw.beanId = ''; raw.beanName = '';
   var r = C.parseBrewForm(raw, { beans: BEANS, gear: GEARS });

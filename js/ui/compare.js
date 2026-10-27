@@ -13,6 +13,7 @@
     return [
       ['日期', (w.date || '').replace('T', ' ')],
       ['方式', C.METHOD_LABEL[w.method]],
+      ['做法', w.drink || E.drinkType || ''],
       ['豆名', s.name || ''],
       ['烘焙度', s.roastLevel || ''],
       ['养豆天数', age != null ? age + ' 天' : ''],

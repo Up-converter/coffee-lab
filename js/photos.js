@@ -1,9 +1,8 @@
 /* CoffeePhotos — 冲煮记录照片：IndexedDB 存 JPEG Blob，主数据(JSON)里只存照片 id 引用。
- * 设计要点：
- *  - localStorage 约 5MB 配额放不下照片；IndexedDB 按源可有数百 MB，Blob 原样存储。
- *  - 选图后经 canvas 压缩（长边 ≤1280px、JPEG q0.78），统一格式并抹去 EXIF。
- *  - 导出：照片转 base64 内嵌进 JSON 备份；导入：解码写回 IndexedDB（合并按 id 去重）。
- *  - 所有页面调用处均以 window.CoffeePhotos 存在性守卫，本模块加载失败不影响记录功能。 */
+ * 兼容性设计（微信内置 / 夸克等内核上必须可靠）：
+ *  - 选图 → stage()：同步生成 id + 原图 objectURL 立即显示，不经画布、不碰 IndexedDB；
+ *  - 保存 → persist()：记录保存后后台执行，逐张压缩（失败/超时用原图），任何失败只提示、绝不阻断记录；
+ *  - 所有 IndexedDB 读写都带超时兜底，内核挂起时走降级路径而不是永远等待。 */
 (function (root) {
   'use strict';
 
@@ -12,32 +11,53 @@
   var DB_VERSION = 1;
   var MAX_EDGE = 1280;          /* 压缩后长边上限（px） */
   var JPEG_QUALITY = 0.78;
+  var IO_TIMEOUT = 4000;        /* 单次 IndexedDB 操作/压缩兜底时限 */
 
   var dbPromise = null;
-  var urlCache = {};            /* photoId -> objectURL，会话内复用不重复创建 */
+  var urlCache = {};            /* photoId -> objectURL，会话内复用 */
 
   function genId() {
     return 'ph-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
   }
 
+  /* 承诺超时兜底：p 不论成功/失败/挂起，ms 内必然落定（挂起/出错都取 fallback 值） */
+  function withTimeout(p, ms, fallback) {
+    return new Promise(function (resolve) {
+      var done = false;
+      var timer = setTimeout(function () {
+        if (!done) { done = true; resolve(fallback); }
+      }, ms);
+      Promise.resolve(p).then(function (v) {
+        if (!done) { done = true; clearTimeout(timer); resolve(v); }
+      }, function () {
+        if (!done) { done = true; clearTimeout(timer); resolve(fallback); }
+      });
+    });
+  }
+
   function open() {
     if (dbPromise) return dbPromise;
     dbPromise = new Promise(function (resolve, reject) {
-      var req = indexedDB.open(DB_NAME, DB_VERSION);
+      var req;
+      try { req = indexedDB.open(DB_NAME, DB_VERSION); }
+      catch (e) { reject(e); return; }
       req.onupgradeneeded = function () {
         var db = req.result;
         if (!db.objectStoreNames.contains(STORE)) {
-          var st = db.createObjectStore(STORE, { keyPath: 'id' });
-          st.createIndex('brewId', 'brewId', { unique: false });
+          req.result.createObjectStore(STORE, { keyPath: 'id' })
+            .createIndex('brewId', 'brewId', { unique: false });
         }
       };
       req.onsuccess = function () { resolve(req.result); };
       req.onerror = function () { reject(req.error); };
     });
-    return dbPromise;
+    /* open 本身也可能挂起：包一层超时，失败则置空避免反复重试 */
+    return (dbPromise = withTimeout(dbPromise, IO_TIMEOUT, null).then(function (db) {
+      if (!db) dbPromise = Promise.reject(new Error('IndexedDB 不可用'));
+      return db;
+    }));
   }
 
-  /* 以事务模式执行 fn(store)，事务完成后 resolve fn 返回的 IDBRequest 结果 */
   function withStore(mode, fn) {
     return open().then(function (db) {
       return new Promise(function (resolve, reject) {
@@ -53,7 +73,7 @@
   function put(rec) { return withStore('readwrite', function (st) { return st.put(rec); }); }
   function get(id) { return withStore('readonly', function (st) { return st.get(id); }); }
   function getMany(ids) {
-    return Promise.all((ids || []).map(function (id) { return get(id); }))
+    return Promise.all((ids || []).map(function (id) { return get(id).catch(function () { return null; }); }))
       .then(function (rows) { return rows.filter(Boolean); });
   }
   function deleteIds(ids) {
@@ -65,7 +85,6 @@
   function deleteByBrew(brewId) {
     return withStore('readwrite', function (st) {
       var keys = st.index('brewId').getAllKeys(brewId);
-      /* 同一事务内先查再删：oncomplete 时 keys 已填充 */
       keys.onsuccess = function () {
         keys.result.forEach(function (id) { st.delete(id); delete urlCache[id]; });
       };
@@ -98,7 +117,7 @@
     return new Blob([bytes], { type: mime ? mime[1] : 'image/jpeg' });
   }
 
-  /* ---------- 压缩：canvas 统一为 JPEG、长边 ≤ MAX_EDGE ---------- */
+  /* ---------- 压缩（仅保存阶段使用；失败一律降级用原图） ---------- */
 
   function loadImage(file) {
     return new Promise(function (resolve, reject) {
@@ -121,7 +140,7 @@
         catch (e) { reject(new Error('图片压缩失败')); }
       }
       if (!canvas.toBlob) { fallback(); return; }
-      var timer = setTimeout(fallback, 1500);            /* 回调不来就走兜底 */
+      var timer = setTimeout(fallback, 1500);
       canvas.toBlob(function (blob) {
         if (settled) return;
         settled = true; clearTimeout(timer);
@@ -130,8 +149,7 @@
     });
   }
 
-  /* 超大源图（如 4800 万像素手机直出）在部分移动端画布上会失败：先逐级减半到安全面积再缩放 */
-  var MAX_CANVAS_PIXELS = 16777216;
+  var MAX_CANVAS_PIXELS = 16777216;   /* 超大图先逐级减半，规避移动端画布面积上限 */
 
   function compress(file) {
     return loadImage(file).then(function (img) {
@@ -155,25 +173,39 @@
 
   /* ---------- 页面辅助 ---------- */
 
-  /* 取照片显示用 URL（命中缓存立即返回；照片不存在/库不可用 → null） */
+  /* 选图瞬间调用：同步返回 {id, blob, url}，url 立即可用于 <img> 显示（原图直出） */
+  function stage(file) {
+    return { id: genId(), blob: file, url: URL.createObjectURL(file) };
+  }
+
+  /* 记录保存成功后后台落库：entries 里只写带 blob 的（新选图），removedIds 为编辑时移除的旧照片。
+   * 返回 {saved, failed}；内部所有失败都降级（压缩失败用原图），不会 reject。 */
+  function persist(brewId, entries, removedIds) {
+    var pre = (removedIds && removedIds.length) ? deleteIds(removedIds).catch(function () {}) : Promise.resolve();
+    var fresh = (entries || []).filter(function (p) { return p && p.id && p.blob; });
+    return pre.then(function () {
+      return Promise.all(fresh.map(function (p) {
+        return withTimeout(compress(p.blob), IO_TIMEOUT, p.blob)
+          .then(function (blob) {
+            return put({ id: p.id, brewId: brewId || null, createdAt: new Date().toISOString(), blob: blob });
+          })
+          .then(function () { return true; })
+          .catch(function () { return false; });      /* 单张失败不影响其他 */
+      })).then(function (rs) {
+        var saved = rs.filter(Boolean).length;
+        return { saved: saved, failed: rs.length - saved };
+      });
+    }).catch(function () { return { saved: 0, failed: fresh.length }; });
+  }
+
+  /* 取照片显示用 URL（缓存命中/照片不存在/超时 → null），读方自行隐藏占位 */
   function urlFor(id) {
     if (urlCache[id]) return Promise.resolve(urlCache[id]);
-    return get(id).then(function (rec) {
+    return withTimeout(get(id), IO_TIMEOUT, null).then(function (rec) {
       if (!rec || !rec.blob) return null;
       urlCache[id] = URL.createObjectURL(rec.blob);
       return urlCache[id];
     }).catch(function () { return null; });
-  }
-
-  /* 新增一张：压缩后写入，返回记录（含 id），brewId 在保存记录时已知 */
-  function add(brewId, file) {
-    return compress(file).then(function (blob) { return save(brewId, blob); });
-  }
-
-  /* 写入已压缩的 Blob（表单里选图时仅 compress 暂存，提交时才 save） */
-  function save(brewId, blob) {
-    var rec = { id: genId(), brewId: brewId || null, createdAt: new Date().toISOString(), blob: blob };
-    return put(rec).then(function () { return rec; });
   }
 
   /* ---------- 导出 / 导入 ---------- */
@@ -217,10 +249,8 @@
 
   root.CoffeePhotos = {
     MAX_PHOTOS: 3,
-    compress: compress,
-    add: add,
-    save: save,
-    get: get,
+    stage: stage,
+    persist: persist,
     urlFor: urlFor,
     deleteIds: deleteIds,
     deleteByBrew: deleteByBrew,

@@ -11,6 +11,12 @@
   var ROAST_LEVELS = ['极浅', '浅', '中浅', '中', '中深', '深'];
   var PROCESSES = ['水洗', '日晒', '蜜处理', '厌氧发酵', '其他'];
   var DRINK_TYPES = ['浓缩', 'Ristretto', 'Lungo', '美式', '拿铁'];
+  /* 做法 / 喝法：按冲煮方式分组的常用选项（表单为 select，可保留历史自定义值） */
+  var DRINK_OPTIONS = {
+    espresso: ['直饮浓缩', '热美式', '冰美式', '拿铁', '澳白', '卡布奇诺', 'Dirty'],
+    pourOver: ['热手冲', '冰手冲'],
+    coldBrew: ['冷萃原液', '冷萃兑水', '冷萃加奶', '冰滴']
+  };
   var FLAVOR_TAGS = ['柑橘', '莓果', '热带水果', '花香', '焦糖', '巧克力', '坚果', '红茶', '绿茶', '发酵感', '酒感', '香料', '谷物'];
   var SENSORY_SLIDERS = [
     { key: 'acidity', label: '酸质', color: 'amber' },
@@ -125,10 +131,15 @@
       if (!isObj(w) || typeof w.id !== 'string' || !w.id ||
           METHODS.indexOf(w.method) < 0 || typeof w.date !== 'string' || !w.date) {
         errors.push('brews[' + i + '] 缺少 id/method/date');
-      } else if (w.photos !== undefined && w.photos !== null) {
-        /* 照片：可选，主数据里只存 IndexedDB 照片 id 引用 */
-        var badPhoto = !Array.isArray(w.photos) || w.photos.some(function (p) { return typeof p !== 'string'; });
-        if (badPhoto) errors.push('brews[' + i + '].photos 应为字符串数组');
+      } else {
+        if (w.photos !== undefined && w.photos !== null) {
+          /* 照片：可选，主数据里只存 IndexedDB 照片 id 引用 */
+          var badPhoto = !Array.isArray(w.photos) || w.photos.some(function (p) { return typeof p !== 'string'; });
+          if (badPhoto) errors.push('brews[' + i + '].photos 应为字符串数组');
+        }
+        if (w.drink !== undefined && w.drink !== null && typeof w.drink !== 'string') {
+          errors.push('brews[' + i + '].drink 应为字符串');
+        }
       }
     });
     if (errors.length) return { ok: false, errors: errors };
@@ -221,7 +232,7 @@
         w.sensory && w.sensory.tags ? w.sensory.tags.join('|') : '',
         w.sensory ? w.sensory.notes : '', w.sensory ? w.sensory.nextStep : '',
         w.favorite ? '是' : '否',
-        E.pressure, E.preinfusionTime, E.preinfusionType, E.firstDrip, E.drinkType, E.puckPrep, E.observation,
+        E.pressure, E.preinfusionTime, E.preinfusionType, E.firstDrip, w.drink || E.drinkType || '', E.puckPrep, E.observation,
         P.bloomWater, P.bloomTime, formatPours(P.pours), P.beverageWeight != null ? P.beverageWeight : CB.beverageWeight, P.technique, P.drainTime,
         w.advanced ? w.advanced.water : '', w.advanced ? w.advanced.env : '',
         w.advanced ? w.advanced.tds : '', eyFor(w),
@@ -291,6 +302,7 @@
       beanId: bean.id || null,
       beanSnapshot: beanSnapshot(bean),
       photos: photos,
+      drink: str(raw.drink),
       dose: num(raw.dose), water: num(raw.water),
       time: num(raw.time), temp: num(raw.temp),
       grind: str(raw.grind),
@@ -349,7 +361,7 @@
   var api = {
     DATA_VERSION: DATA_VERSION, METHOD_LABEL: METHOD_LABEL, METHODS: METHODS,
     ROAST_LEVELS: ROAST_LEVELS, PROCESSES: PROCESSES,
-    DRINK_TYPES: DRINK_TYPES, FLAVOR_TAGS: FLAVOR_TAGS,
+    DRINK_TYPES: DRINK_TYPES, DRINK_OPTIONS: DRINK_OPTIONS, FLAVOR_TAGS: FLAVOR_TAGS,
     SENSORY_SLIDERS: SENSORY_SLIDERS, ESPRESSO_EXTRA_SLIDER: ESPRESSO_EXTRA_SLIDER,
     newId: newId, esc: esc, num: num,
     calcRatio: calcRatio, formatRatio: formatRatio,
