@@ -1,3 +1,13 @@
 .DS_Store
 aebd64b6c39132f761e96cc990b67626.jpg
 .playwright-mcp/
+node_modules/
+www/
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/keystore/
+android/keystore.properties
+*.keystore
+*.jks

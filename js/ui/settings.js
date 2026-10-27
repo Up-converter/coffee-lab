@@ -19,13 +19,24 @@
   }
 
   function download(filename, text, mime) {
-    var blob = new Blob([text], { type: mime || 'application/octet-stream' });
-    var a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+    function browserDownload() {
+      var blob = new Blob([text], { type: mime || 'application/octet-stream' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+    }
+    /* Capacitor 原生壳：WebView 不支持 <a download>，写缓存后交系统分享面板保存/发送；插件不可用或失败则退回浏览器路径 */
+    var Cap = window.Capacitor;
+    if (Cap && Cap.Plugins && Cap.Plugins.Filesystem && Cap.Plugins.Share) {
+      Cap.Plugins.Filesystem.writeFile({ path: filename, data: text, directory: 'CACHE', encoding: 'utf8' })
+        .then(function (r) { return Cap.Plugins.Share.share({ title: filename, url: r.uri, dialogTitle: '保存或分享' }); })
+        .catch(browserDownload);
+      return;
+    }
+    browserDownload();
   }
   function stamp() {
     var d = new Date();
@@ -36,6 +47,7 @@
   function render(root) {
     var store = CoffeeApp.store, s = store.get();
     var G = s.gear;
+    var inApp = !!window.Capacitor;   /* Android 原生壳内：安装 PWA 区块无意义，文案也不提浏览器 */
     function gField(label, key, ph) {
       return '<div class="field"><span class="label">' + label + '</span>'
         + '<input id="g-' + key + '" class="input" value="' + C.esc(G[key] || '') + '" placeholder="' + ph + '"></div>';
@@ -57,7 +69,9 @@
       + '<div class="status-line" id="gear-status"></div></div>'
 
       + '<div class="settings-section"><h3>💾 数据</h3>'
-      + '<p class="hint" style="margin-bottom:10px">数据仅保存在本机浏览器。定期导出 JSON 备份，换设备时导入即可迁移。</p>'
+      + '<p class="hint" style="margin-bottom:10px">' + (inApp
+          ? '数据保存在本机 App 内。定期导出 JSON 备份，换设备或重装 App 时导入即可迁移。'
+          : '数据仅保存在本机浏览器。定期导出 JSON 备份，换设备时导入即可迁移。') + '</p>'
       + '<div class="btn-row">'
       + '<button class="btn btn-primary" id="exp-json">导出 JSON 备份</button>'
       + '<button class="btn" id="exp-csv">导出 CSV 表格</button>'
@@ -77,10 +91,10 @@
       + '<button class="btn btn-danger" id="wipe-btn" disabled>清空全部数据</button>'
       + '</div></div>'
 
-      + '<div class="settings-section"><h3>📱 安装到主屏幕</h3>'
+      + (inApp ? '' : '<div class="settings-section"><h3>📱 安装到主屏幕</h3>'
       + '<p class="hint" style="margin-bottom:10px">通过 https 访问时（如 GitHub Pages），可将本应用安装到手机主屏幕，像原生 App 一样全屏离线使用。</p>'
       + '<button class="btn btn-primary" id="install-btn" hidden>安装应用</button>'
-      + '<div class="status-line" id="install-status"></div></div>'
+      + '<div class="status-line" id="install-status"></div></div>')
 
       + '<div class="footer-note">CoffeeLab v1.0 · 数据版本 v' + C.DATA_VERSION + ' · 记录 ' + s.brews.length + ' 杯 · 豆子 ' + s.beans.length + ' 款</div>';
 
@@ -189,6 +203,7 @@
     });
 
     var installBtn = q('#install-btn');
+    if (!installBtn) return;   /* 原生壳内该区块不存在 */
     if (window.CoffeeApp.installEvent) installBtn.hidden = false;
     installBtn.addEventListener('click', function () {
       var ev = window.CoffeeApp.installEvent;

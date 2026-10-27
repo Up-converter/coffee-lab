@@ -1,0 +1,11 @@
+{
+  "appId": "io.github.upconverter.coffeelab",
+  "appName": "咖啡实验台",
+  "webDir": "www",
+  "plugins": {
+    "SystemBars": {
+      "style": "LIGHT",
+      "initialViewportFitValueHint": "cover"
+    }
+  }
+}

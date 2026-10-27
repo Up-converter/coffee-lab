@@ -1,0 +1,30 @@
+{
+  "name": "coffeelab",
+  "version": "1.0.0",
+  "description": "咖啡实验台 CoffeeLab — 冲煮记录 PWA + Android 壳（Capacitor）",
+  "directories": {
+    "doc": "docs",
+    "test": "test"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "sync-www": "rm -rf www && mkdir -p www && cp index.html manifest.webmanifest www/ && cp -R css js icons www/",
+    "cap-sync": "npm run sync-www && npx cap sync android"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Up-converter/coffee-lab.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "homepage": "https://github.com/Up-converter/coffee-lab#readme",
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.3"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/share": "^8.0.3"
+  }
+}

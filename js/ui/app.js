@@ -71,7 +71,8 @@
     document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') store.saveNow(); });
     window.addEventListener('beforeunload', function () { store.saveNow(); });
     window.addEventListener('pagehide', function () { store.saveNow(); });
-    if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+    /* Capacitor 原生壳内资源已随 App 内置，注册 SW 反而可能让更新停留在旧缓存，跳过 */
+    if (!window.Capacitor && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
       navigator.serviceWorker.register('./sw.js').catch(function () { /* file:// 或离线首次，忽略 */ });
     }
   });
