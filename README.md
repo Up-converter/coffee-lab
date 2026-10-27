@@ -6,6 +6,7 @@
 
 - 本地：`python3 -m http.server 8123`，手机/电脑访问 `http://localhost:8123`（手机需用电脑局域网 IP）
 - 发布：已部署在 GitHub Pages → **https://up-converter.github.io/coffee-lab/**
+- Android App：最新版 APK → **https://github.com/Up-converter/coffee-lab/releases/latest**（Android 7.0+，数据与网页版可互导迁移）
 - （推送到 `main` 自动更新；仓库根的 `.nojekyll` 使构建跳过 Jekyll，勿删）
 
 ## Android App（Capacitor）
