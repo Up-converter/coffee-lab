@@ -50,9 +50,14 @@
         listeners.slice().forEach(function (fn) { try { fn(); } catch (e) { console.error(e); } });
       },
 
-      saveNow: function () {
+      flush: function () {
+        /* 只落盘不广播：页面隐藏/卸载时的兜底保存不能触发全量重渲染，
+         * 否则正在填写的表单会被按默认值重建（选图/选文件、切后台时必现） */
         try { storage.setItem(KEY, JSON.stringify(state)); api.saveError = false; }
         catch (e) { api.saveError = true; }
+      },
+      saveNow: function () {
+        api.flush();
         api.notify();
       },
       scheduleSave: function () {

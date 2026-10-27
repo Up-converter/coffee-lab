@@ -7,6 +7,34 @@
   var METHOD_TOGGLE = { espresso: '☕ 意式浓缩', pourOver: '🫖 手冲', coldBrew: '🧊 冷萃' };
   /* 切换冲煮方式时暂存已填内容，避免整表重渲染丢失输入 */
   var draft = null;
+  /* 草稿同时落盘 localStorage：选图/选文件/杀后台导致的页面重载后仍可恢复。
+   * 照片 Blob 无法持久化，只恢复文字与选择项；提交/取消/删除后即作废。 */
+  var DRAFT_KEY = 'coffeeLab.brewDraft';
+
+  function readDraftStore() {
+    try {
+      var raw = localStorage.getItem(DRAFT_KEY);
+      var d = raw ? JSON.parse(raw) : null;
+      return (d && d.values && typeof d.values === 'object') ? d : null;
+    } catch (e) { return null; }
+  }
+  function writeDraftStore() {
+    if (!draft) return;
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({
+        fromMethod: draft.fromMethod,
+        editId: draft.editId || null,
+        values: draft.values,
+        tags: draft.tags,
+        stars: draft.stars,
+        openAdv: draft.openAdv,
+        beanManualHidden: draft.beanManualHidden
+      }));
+    } catch (e) { /* 配额不足等：内存草稿仍在，仅本次会话内有效 */ }
+  }
+  function clearDraftStore() {
+    try { localStorage.removeItem(DRAFT_KEY); } catch (e) { /* 忽略 */ }
+  }
 
   function normalizeMethod(m, fallback) {
     if (C.METHODS.indexOf(m) >= 0) return m;
@@ -489,12 +517,22 @@
 
       + '<div class="btn-row">'
       + '<button type="submit" class="btn btn-primary">保存记录</button>'
-      + '<a class="btn" href="' + (editBrew ? '#/brew/' + C.esc(editBrew.id) : '#/brews') + '">取消</a>'
+      + '<a class="btn" id="btn-cancel" href="' + (editBrew ? '#/brew/' + C.esc(editBrew.id) : '#/brews') + '">取消</a>'
       + (editBrew ? '<button type="button" class="btn btn-danger" id="btn-del">删除记录</button>' : '')
       + '</div></form>';
 
     function q(sel) { return root.querySelector(sel); }
-    if (!opts.switched) draft = null;   /* 非切换进入的渲染 = 全新表单会话，旧草稿作废 */
+    var draftRestored = false;
+    if (!opts.switched) {
+      /* 全新表单会话：若上次填写被页面重载/杀后台打断（草稿已落盘），则恢复之 */
+      var savedDraft = readDraftStore();
+      if (savedDraft && (savedDraft.editId || null) === (editBrew ? editBrew.id : null)) {
+        draft = savedDraft;
+        draftRestored = true;
+      } else {
+        draft = null;
+      }
+    }
     if (draft && draft.photos) photos = draft.photos;   /* 切换方式时照片随草稿带过去 */
 
     /* 照片缩略图（含"添加"占位块）；已存照片的图异步回填 */
@@ -534,6 +572,7 @@
       var det = root.querySelector('details.adv'), bm = root.querySelector('#bean-manual');
       draft = {
         fromMethod: method,
+        editId: editBrew ? editBrew.id : null,
         values: Object.assign({}, draft && draft.values, values),
         photos: photos,
         tags: Array.prototype.map.call(root.querySelectorAll('#tag-chips .tag-chip.on'), function (t) { return t.getAttribute('data-tag'); }),
@@ -541,6 +580,7 @@
         openAdv: det ? det.open : null,
         beanManualHidden: bm ? bm.hidden : null
       };
+      writeDraftStore();
     }
     function applyDraft() {
       var d = draft;
@@ -579,6 +619,17 @@
     applyDraft();
     renderPhotoTiles();
 
+    /* 恢复的草稿若只有默认值（如仅剩日期）则直接作废，避免下次进来凭空"恢复"出旧日期 */
+    if (draftRestored) {
+      var meaningful = (draft.stars > 0) || (draft.tags && draft.tags.length > 0) || Object.keys(draft.values).some(function (id) {
+        if (id === 'f-date' || id === 'f-bean' || id === 'photo-file') return false;
+        var v = draft.values[id];
+        return v !== '' && v !== false && v != null;
+      });
+      if (meaningful) appToast('已恢复上次未保存的填写内容（照片需重新选择）');
+      else { draft = null; clearDraftStore(); }
+    }
+
     function updateAge() {
       var beanId = q('#f-bean').value;
       var bean = beanId ? s.beans.filter(function (b) { return b.id === beanId; })[0] : null;
@@ -592,7 +643,16 @@
     }
     updateAge(); updateRatio();
 
+    /* 边填边暂存（防抖）：打字不落盘，停手 350ms 后快照一次；change 立即快照。
+     * 页面在选图/切后台时被重载也能恢复到最后一次停手的状态。 */
+    var harvestTimer = null;
+    function scheduleHarvest() {
+      if (harvestTimer != null) clearTimeout(harvestTimer);
+      harvestTimer = setTimeout(function () { harvestTimer = null; harvestDraft(); }, 350);
+    }
+
     root.addEventListener('change', function (e) {
+      if (e.target.id !== 'photo-file') harvestDraft();
       if (e.target.id === 'f-bean') {
         var manualBlock = q('#bean-manual');
         manualBlock.hidden = !!e.target.value;
@@ -622,9 +682,14 @@
         var out = e.target.parentElement.querySelector('.slider-val');
         if (out) out.textContent = e.target.value === '' ? '-' : e.target.value;
       }
+      scheduleHarvest();
     });
     root.addEventListener('click', function (e) {
-      if (e.target.closest('#photo-add')) { var pf = q('#photo-file'); if (pf) pf.click(); return; }
+      if (e.target.closest('#photo-add')) {
+        harvestDraft();                       /* 打开相册前先快照：回来页面可能已被系统重载 */
+        var pf = q('#photo-file'); if (pf) pf.click(); return;
+      }
+      if (e.target.closest('#btn-cancel')) { draft = null; clearDraftStore(); return; }
       var pdel = e.target.closest('[data-pdel]');
       if (pdel) {
         var pidx = Number(pdel.getAttribute('data-pdel'));
@@ -671,6 +736,7 @@
         if (confirm('确定删除这条记录？')) {
           store.deleteBrew(editBrew.id);
           if (window.CoffeePhotos) CoffeePhotos.deleteByBrew(editBrew.id);   /* 同步清理照片 */
+          draft = null; clearDraftStore();
           CoffeeApp.go('#/brews');
         }
       }
@@ -724,6 +790,7 @@
       if (editBrew) store.updateBrew(editBrew.id, res.brew);
       else store.addBrew(res.brew);
       draft = null;                                /* 已提交，切换草稿作废 */
+      clearDraftStore();
       store.setSettings({ lastMethod: method });   /* 下次记一杯默认沿用本次方式 */
       CoffeeApp.go('#/brew/' + res.brew.id);
       /* 照片后台落库：逐张压缩（失败用原图）、单张失败不影响其余，仅提示 */

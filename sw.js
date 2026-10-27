@@ -1,5 +1,5 @@
 /* CoffeeLab Service Worker — 网络优先 + 离线回退缓存；发版改 CACHE 版本号即可整体失效 */
-var CACHE = 'coffeelab-v5';
+var CACHE = 'coffeelab-v6';
 var ASSETS = [
   './',
   './index.html',
