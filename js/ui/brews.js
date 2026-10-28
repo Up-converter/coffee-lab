@@ -237,6 +237,7 @@
       { k: '研磨刻度', v: w.grind || '' }
     ];
     if (isPour) cells.push({ k: '滤杯', v: w.dripper || '' });
+    if (isEsp && E.firstDrip != null) cells.push({ k: '首滴', v: E.firstDrip + 's' });
     if (CB.container) cells.push({ k: '容器', v: CB.container });
     if (ey != null) cells.push({ k: '萃取率 EY', v: ey + '%' });
 
@@ -251,7 +252,6 @@
     if (isEsp) {
       advRows = dlRow('峰值压力', E.pressure != null ? E.pressure + ' bar' : '')
         + dlRow('预浸', (E.preinfusionTime != null ? E.preinfusionTime + 's' : '') + (E.preinfusionType ? ' · ' + E.preinfusionType : ''))
-        + dlRow('首滴时间', E.firstDrip != null ? E.firstDrip + 's' : '')
         + dlRow('布粉压粉', E.puckPrep || '')
         + dlRow('萃取观察', E.observation || '');
     } else if (isPour) {
@@ -441,9 +441,7 @@
       '<div class="field"><span class="label">峰值压力 (bar)</span><input id="a-pressure" class="input" type="number" step="0.1" value="' + eval_('pressure') + '"></div>'
       + '<div class="field"><span class="label">预浸时间 (秒)</span><input id="a-preinfusion-time" class="input" type="number" value="' + eval_('preinfusionTime') + '"></div>'
       + '<div class="field"><span class="label">预浸方式</span><input id="a-preinfusion-type" class="input" value="' + C.esc(eval_('preinfusionType') || '') + '" placeholder="渐进 / 低压"></div>'
-      + '<div class="field"><span class="label">首滴时间 (秒)</span><input id="a-first-drip" class="input" type="number" value="' + eval_('firstDrip') + '"></div>'
-      + '<div class="field wide"><span class="label">布粉压粉手法</span><input id="a-puck-prep" class="input" value="' + C.esc(eval_('puckPrep') || '') + '" placeholder="如 WDT + 布粉器 + 恒力压粉锤"></div>'
-      + '<div class="field wide"><span class="label">萃取观察</span><textarea id="a-observation" class="input" placeholder="虎斑油脂 / 通道效应 / 喷溅 / 粉饼状态…">' + C.esc(eval_('observation') || '') + '</textarea></div>';
+      + '<div class="field wide"><span class="label">布粉压粉手法</span><input id="a-puck-prep" class="input" value="' + C.esc(eval_('puckPrep') || '') + '" placeholder="如 WDT + 布粉器 + 恒力压粉锤"></div>';
 
     var advPour =
       '<div class="field"><span class="label">闷蒸水量 (g)</span><input id="a-bloom-water" class="input" type="number" value="' + pval('bloomWater') + '"></div>'
@@ -491,6 +489,10 @@
       + '<div class="field"><span class="label">研磨刻度</span><input id="f-grind" class="input" value="' + C.esc(val('grind') || '') + '" placeholder="如 Niche 12 / C40 24格"></div>'
       + (isPour ? '<div class="field"><span class="label">滤杯</span><input id="f-dripper" class="input" list="drippers" value="' + C.esc(val('dripper') || '') + '" placeholder="V60-02 / Kalita 155"></div>' : '')
       + '<div class="field"><span class="label">比例（自动）</span><div class="ratio-live" id="ratio-out">–</div></div>'
+      + (isEsp
+          ? '<div class="field"><span class="label">首滴时间 (秒)</span><input id="a-first-drip" class="input" type="number" value="' + eval_('firstDrip') + '"></div>'
+            + '<div class="field wide"><span class="label">萃取观察</span><textarea id="a-observation" class="input" placeholder="虎斑油脂 / 通道效应 / 喷溅 / 粉饼状态…">' + C.esc(eval_('observation') || '') + '</textarea></div>'
+          : '')
       + '</div>'
       + '<datalist id="drippers">' + datalistDrippers + '</datalist>'
       + '</div>'
@@ -565,6 +567,7 @@
     /* 切换冲煮方式时：暂存当前已填内容 → 重渲染 → 按新方式恢复。
      * values 与上一份草稿合并，来回切换也不丢已填字段；提交或离开表单时整体作废。 */
     function harvestDraft() {
+      if (!root.isConnected) return;   /* 表单已随保存/导航脱离文档：不得再写草稿 */
       var values = {};
       root.querySelectorAll('input[id], select[id], textarea[id]').forEach(function (el) {
         values[el.id] = (el.type === 'checkbox') ? el.checked : el.value;
@@ -650,6 +653,9 @@
       if (harvestTimer != null) clearTimeout(harvestTimer);
       harvestTimer = setTimeout(function () { harvestTimer = null; harvestDraft(); }, 350);
     }
+    function cancelHarvest() {
+      if (harvestTimer != null) { clearTimeout(harvestTimer); harvestTimer = null; }
+    }
 
     root.addEventListener('change', function (e) {
       if (e.target.id !== 'photo-file') harvestDraft();
@@ -689,7 +695,7 @@
         harvestDraft();                       /* 打开相册前先快照：回来页面可能已被系统重载 */
         var pf = q('#photo-file'); if (pf) pf.click(); return;
       }
-      if (e.target.closest('#btn-cancel')) { draft = null; clearDraftStore(); return; }
+      if (e.target.closest('#btn-cancel')) { cancelHarvest(); draft = null; clearDraftStore(); return; }
       var pdel = e.target.closest('[data-pdel]');
       if (pdel) {
         var pidx = Number(pdel.getAttribute('data-pdel'));
@@ -734,6 +740,7 @@
       }
       if (e.target.closest('#btn-del') && editBrew) {
         if (confirm('确定删除这条记录？')) {
+          cancelHarvest();
           store.deleteBrew(editBrew.id);
           if (window.CoffeePhotos) CoffeePhotos.deleteByBrew(editBrew.id);   /* 同步清理照片 */
           draft = null; clearDraftStore();
@@ -744,6 +751,7 @@
 
     q('#brew-form').addEventListener('submit', function (e) {
       e.preventDefault();
+      cancelHarvest();   /* 防抖定时器不得在保存后把已清空的草稿写回 */
       var slidersRaw = {};
       sliders.forEach(function (sl) { var el = q('#s-' + sl.key); slidersRaw[sl.key] = el ? el.value : ''; });
       var g = function (id) { var el = q(id); return el ? el.value : ''; };
