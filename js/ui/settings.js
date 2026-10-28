@@ -79,6 +79,10 @@
       + '</div>'
       + '<div class="status-line" id="data-status"></div></div>'
 
+      + '<div class="settings-section"><h3>📖 萃取指导</h3>'
+      + '<p class="hint" style="margin-bottom:10px">意式 / 手冲 / 冷萃常见问题的调整方向，当帮助页使用。</p>'
+      + '<div class="btn-row"><a class="btn btn-primary" href="#/guide">打开萃取指导</a></div></div>'
+
       + '<div class="settings-section"><h3>🧹 危险区</h3>'
       + '<p class="hint" style="margin-bottom:10px">清空全部记录与豆子库。建议先导出 JSON 备份。</p>'
       + '<div class="confirm-row">'
@@ -91,7 +95,7 @@
       + '<button class="btn btn-primary" id="install-btn" hidden>安装应用</button>'
       + '<div class="status-line" id="install-status"></div></div>')
 
-      + '<div class="footer-note">CoffeeLab v1.0.2 · 数据版本 v' + C.DATA_VERSION + ' · 记录 ' + s.brews.length + ' 杯 · 豆子 ' + s.beans.length + ' 款</div>';
+      + '<div class="footer-note">CoffeeLab v1.0.3 · 数据版本 v' + C.DATA_VERSION + ' · 记录 ' + s.brews.length + ' 杯 · 豆子 ' + s.beans.length + ' 款</div>';
 
     var q = function (id) { return root.querySelector(id); };
     var status = function (id, msg, isErr) {

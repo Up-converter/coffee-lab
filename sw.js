@@ -1,5 +1,5 @@
 /* CoffeeLab Service Worker — 网络优先 + 离线回退缓存；发版改 CACHE 版本号即可整体失效 */
-var CACHE = 'coffeelab-v7';
+var CACHE = 'coffeelab-v8';
 var ASSETS = [
   './',
   './index.html',
@@ -12,6 +12,7 @@ var ASSETS = [
   './js/ui/brews.js',
   './js/ui/compare.js',
   './js/ui/settings.js',
+  './js/ui/guide.js',
   './manifest.webmanifest',
   './icons/icon.svg',
   './icons/icon-maskable.svg',

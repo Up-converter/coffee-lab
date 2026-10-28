@@ -27,8 +27,7 @@
         values: draft.values,
         tags: draft.tags,
         stars: draft.stars,
-        openAdv: draft.openAdv,
-        beanManualHidden: draft.beanManualHidden
+        openAdv: draft.openAdv
       }));
     } catch (e) { /* 配额不足等：内存草稿仍在，仅本次会话内有效 */ }
   }
@@ -355,14 +354,12 @@
     var base = null, method;
     if (editBrew) { base = editBrew; method = editBrew.method; }
     else {
-      /* 未指定方式时沿用上次使用的冲煮方式，减少误记成意式 */
+      /* 未指定方式时沿用上次使用的冲煮方式（只决定方式选项，不带参数）；
+       * 新建一律空白，要带参数请用详情页的「复制为新实验」 */
       method = normalizeMethod(opts.method, s.settings.lastMethod);
       if (opts.fromId) {
         base = s.brews.filter(function (w) { return w.id === opts.fromId; })[0] || null;
         if (base) method = base.method;
-      } else {
-        base = s.brews.filter(function (w) { return w.method === method; })
-          .sort(function (a, b) { return (b.date || '').localeCompare(a.date || ''); })[0] || null;
       }
     }
     var E = (base && base.advanced && base.advanced.espresso) || null;
@@ -468,11 +465,11 @@
       + '<div class="field-row">'
       + '<div class="field wide"><span class="label">豆子库</span><select id="f-bean" class="input"><option value="">➕ 直接输入豆名…</option>' + beanOptions + '</select></div>'
       + '</div>'
-      + '<div class="field-row" id="bean-manual"' + (manualBean ? '' : ' hidden') + '>'
+      + '<div class="field-row" id="bean-manual">'
       + '<div class="field"><span class="label">豆名 <span class="req">*</span></span><input id="f-bean-name" class="input" list="bean-names" value="' + C.esc(manual ? manual.name : '') + '"></div>'
       + '<div class="field"><span class="label">烘焙度</span><select id="f-roast" class="input">' + enumOptions(C.ROAST_LEVELS, manual ? (manual.roastLevel || '') : '') + '</select></div>'
       + '<div class="field"><span class="label">烘焙日期</span><input id="f-roast-date" class="input" type="date" value="' + C.esc(manual ? (manual.roastDate || '') : '') + '"></div>'
-      + '<div class="field wide"><label class="hint"><input type="checkbox" id="f-save-bean"> 同时存入豆子库</label></div>'
+      + '<div class="field wide" id="save-bean-row"><label class="hint"><input type="checkbox" id="f-save-bean"> 同时存入豆子库</label></div>'
       + '</div>'
       + '<div class="bean-age" id="bean-age-line"></div>'
       + '<datalist id="bean-names">' + datalistBeans + '</datalist>'
@@ -572,7 +569,7 @@
       root.querySelectorAll('input[id], select[id], textarea[id]').forEach(function (el) {
         values[el.id] = (el.type === 'checkbox') ? el.checked : el.value;
       });
-      var det = root.querySelector('details.adv'), bm = root.querySelector('#bean-manual');
+      var det = root.querySelector('details.adv');
       draft = {
         fromMethod: method,
         editId: editBrew ? editBrew.id : null,
@@ -580,8 +577,7 @@
         photos: photos,
         tags: Array.prototype.map.call(root.querySelectorAll('#tag-chips .tag-chip.on'), function (t) { return t.getAttribute('data-tag'); }),
         stars: Number((root.querySelector('#f-stars') || {}).value) || 0,
-        openAdv: det ? det.open : null,
-        beanManualHidden: bm ? bm.hidden : null
+        openAdv: det ? det.open : null
       };
       writeDraftStore();
     }
@@ -603,7 +599,6 @@
           if (out) out.textContent = el.value === '' ? '-' : el.value;
         }
       });
-      if (d.beanManualHidden != null) { var bm = root.querySelector('#bean-manual'); if (bm) bm.hidden = d.beanManualHidden; }
       if (d.openAdv != null) { var det = root.querySelector('details.adv'); if (det) det.open = d.openAdv; }
       (d.tags || []).forEach(function (t) {
         var chip = root.querySelector('.tag-chip[data-tag="' + String(t).replace(/["\\]/g, '\\$&') + '"]');
@@ -620,6 +615,7 @@
       }
     }
     applyDraft();
+    syncBeanFields();   /* 恢复的草稿若带库内豆子选择，重新联动豆名/烘焙度/烘焙日期 */
     renderPhotoTiles();
 
     /* 恢复的草稿若只有默认值（如仅剩日期）则直接作废，避免下次进来凭空"恢复"出旧日期 */
@@ -633,16 +629,34 @@
       else { draft = null; clearDraftStore(); }
     }
 
-    function updateAge() {
-      var beanId = q('#f-bean').value;
-      var bean = beanId ? s.beans.filter(function (b) { return b.id === beanId; })[0] : null;
-      var roastDate = bean ? bean.roastDate : (q('#bean-manual').hidden ? null : q('#f-roast-date').value);
-      var age = roastDate ? C.calcBeanAgeDays(q('#f-date').value, roastDate) : null;
-      q('#bean-age-line').textContent = age != null ? '🌿 养豆 ' + age + ' 天（按 ' + q('#f-date').value.slice(0, 10) + ' 计算）' : '';
-    }
     function updateRatio() {
       var r = C.formatRatio(q('#f-dose').value, q('#f-water').value);
       q('#ratio-out').textContent = r || '–';
+    }
+    function beanById(id) { return s.beans.filter(function (b) { return b.id === id; })[0] || null; }
+    /* 豆子库联动：选中库内豆子 → 豆名/烘焙度/烘焙日期自动带出并锁定（保存时以豆子库为准）；
+     * 切回「直接输入」→ 清空并解锁，可手动填写并存库 */
+    function syncBeanFields() {
+      var b = beanById(q('#f-bean').value);
+      var nameEl = q('#f-bean-name'), roastEl = q('#f-roast'), dateEl = q('#f-roast-date'), saveRow = q('#save-bean-row');
+      if (b) {
+        nameEl.value = b.name;
+        roastEl.value = b.roastLevel || '';
+        dateEl.value = b.roastDate || '';
+        nameEl.disabled = roastEl.disabled = dateEl.disabled = true;
+        if (saveRow) saveRow.hidden = true;
+      } else {
+        if (nameEl.disabled) { nameEl.value = ''; roastEl.value = ''; dateEl.value = ''; }
+        nameEl.disabled = roastEl.disabled = dateEl.disabled = false;
+        if (saveRow) saveRow.hidden = false;
+      }
+      updateAge();
+    }
+    function updateAge() {
+      var bean = beanById(q('#f-bean').value);
+      var roastDate = bean ? bean.roastDate : q('#f-roast-date').value;
+      var age = roastDate ? C.calcBeanAgeDays(q('#f-date').value, roastDate) : null;
+      q('#bean-age-line').textContent = age != null ? '🌿 养豆 ' + age + ' 天（按 ' + q('#f-date').value.slice(0, 10) + ' 计算）' : '';
     }
     updateAge(); updateRatio();
 
@@ -660,9 +674,7 @@
     root.addEventListener('change', function (e) {
       if (e.target.id !== 'photo-file') harvestDraft();
       if (e.target.id === 'f-bean') {
-        var manualBlock = q('#bean-manual');
-        manualBlock.hidden = !!e.target.value;
-        updateAge();
+        syncBeanFields();
       }
       if (e.target.id === 'f-roast-date' || e.target.id === 'f-date') updateAge();
       if (e.target.id === 'photo-file' && e.target.files && e.target.files.length) {
@@ -758,14 +770,15 @@
       /* 冷萃表单按小时输入，保存前换算为秒 */
       var timeRaw = g('#f-time');
       if (isCold && timeRaw !== '') timeRaw = String(Math.round(Number(timeRaw) * 3600));
+      var beanSel = (g('#f-bean') || '').trim();   /* 库内豆子以豆子库为准，手动字段仅作展示 */
       var raw = {
         method: method,
         date: g('#f-date'),
-        beanId: (g('#f-bean') || '').trim(),
-        beanName: q('#bean-manual').hidden ? '' : g('#f-bean-name'),
-        roastLevel: q('#bean-manual').hidden ? '' : g('#f-roast'),
-        roastDate: q('#bean-manual').hidden ? '' : g('#f-roast-date'),
-        saveBean: !q('#bean-manual').hidden && q('#f-save-bean').checked,
+        beanId: beanSel,
+        beanName: beanSel ? '' : g('#f-bean-name'),
+        roastLevel: beanSel ? '' : g('#f-roast'),
+        roastDate: beanSel ? '' : g('#f-roast-date'),
+        saveBean: !beanSel && q('#f-save-bean').checked,
         dose: g('#f-dose'), water: g('#f-water'), time: timeRaw, temp: g('#f-temp'),
         grind: g('#f-grind'), dripper: g('#f-dripper'),
         advanced: {
