@@ -18,6 +18,42 @@
     if (msg) toastTimer = setTimeout(function () { el.hidden = true; toastTimer = null; }, 6000);
   }
 
+  /* 小红书沙箱：WebView 下载与文件选择可能被禁，导出/导入改走复制粘贴面板 */
+  function transferOverlay(text, onImport) {
+    var mask = document.createElement('div');
+    mask.className = 'transfer-mask';
+    mask.innerHTML = '<div class="transfer-box">'
+      + '<div class="transfer-title">' + (onImport ? '📋 复制 / 粘贴数据' : '📋 备份数据') + '</div>'
+      + '<textarea class="transfer-area input" spellcheck="false" placeholder="' + (onImport ? '把备份 JSON 粘贴到这里' : '') + '"></textarea>'
+      + '<div class="hint" style="margin:8px 0 10px">' + (onImport
+          ? '粘贴备份 JSON 后点「导入以上内容」；也可复制现有内容留作备份。'
+          : '建议点「复制内容」后粘贴保存到微信/备忘录，妥善保管这份备份。') + '</div>'
+      + '<div class="btn-row">'
+      + '<button type="button" class="btn btn-primary" id="tx-copy">复制内容</button>'
+      + (onImport ? '<button type="button" class="btn btn-primary" id="tx-import">导入以上内容</button>' : '')
+      + '<button type="button" class="btn" id="tx-close">关闭</button>'
+      + '</div></div>';
+    document.body.appendChild(mask);
+    var area = mask.querySelector('.transfer-area');
+    area.value = text || '';
+    mask.querySelector('#tx-copy').addEventListener('click', function () {
+      area.focus(); area.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      toast(ok ? '✓ 已复制，请粘贴保存' : '自动复制不可用，请长按文本全选手动复制', !ok);
+    });
+    var impBtn = mask.querySelector('#tx-import');
+    if (impBtn) impBtn.addEventListener('click', function () {
+      var v = area.value;
+      mask.remove();
+      var data;
+      try { data = JSON.parse(v); } catch (e) { status('#data-status', '导入失败：不是有效的 JSON 文件', true); return; }
+      onImport(data);
+    });
+    mask.querySelector('#tx-close').addEventListener('click', function () { mask.remove(); });
+    mask.addEventListener('click', function (e) { if (e.target === mask) mask.remove(); });
+  }
+
   function download(filename, text, mime) {
     function browserDownload() {
       var blob = new Blob([text], { type: mime || 'application/octet-stream' });
@@ -28,6 +64,8 @@
       a.click();
       setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
     }
+    /* 小红书沙箱：下载与分享面板均不可用，改弹复制粘贴面板 */
+    if (window.CoffeeXHS) { transferOverlay(text, null); return; }
     /* Capacitor 原生壳：WebView 不支持 <a download>，写缓存后交系统分享面板保存/发送；插件不可用或失败则退回浏览器路径 */
     var Cap = window.Capacitor;
     if (Cap && Cap.Plugins && Cap.Plugins.Filesystem && Cap.Plugins.Share) {
@@ -47,7 +85,10 @@
   function render(root) {
     var store = CoffeeApp.store, s = store.get();
     var G = s.gear;
-    var inApp = !!window.Capacitor;   /* Android 原生壳内：安装 PWA 区块无意义，文案也不提浏览器 */
+    var inApp = !!(window.Capacitor || window.CoffeeXHS);   /* 原生壳/小红书沙箱：安装 PWA 区块无意义 */
+    var dataHint = window.Capacitor ? '数据保存在本机 App 内。定期导出 JSON 备份，换设备或重装 App 时导入即可迁移。'
+      : window.CoffeeXHS ? '当前运行在小红书沙箱内，数据可能被平台清理，请勤用「导出」把备份复制保存到别处。'
+      : '数据仅保存在本机浏览器。定期导出 JSON 备份，换设备时导入即可迁移。';
     function gField(label, key, ph) {
       return '<div class="field"><span class="label">' + label + '</span>'
         + '<input id="g-' + key + '" class="input" value="' + C.esc(G[key] || '') + '" placeholder="' + ph + '"></div>';
@@ -69,13 +110,12 @@
       + '<div class="status-line" id="gear-status"></div></div>'
 
       + '<div class="settings-section"><h3>💾 数据</h3>'
-      + '<p class="hint" style="margin-bottom:10px">' + (inApp
-          ? '数据保存在本机 App 内。定期导出 JSON 备份，换设备或重装 App 时导入即可迁移。'
-          : '数据仅保存在本机浏览器。定期导出 JSON 备份，换设备时导入即可迁移。') + '</p>'
+      + '<p class="hint" style="margin-bottom:10px">' + dataHint + '</p>'
       + '<div class="btn-row">'
       + '<button class="btn btn-primary" id="exp-json">导出 JSON 备份</button>'
       + '<button class="btn" id="exp-csv">导出 CSV 表格</button>'
       + '<label class="btn" style="cursor:pointer">导入 JSON<input type="file" id="imp-file" accept=".json,application/json" hidden></label>'
+      + (window.CoffeeXHS ? '<button class="btn" id="imp-paste">📋 粘贴导入</button>' : '')
       + '</div>'
       + '<div class="status-line" id="data-status"></div></div>'
 
@@ -95,7 +135,7 @@
       + '<button class="btn btn-primary" id="install-btn" hidden>安装应用</button>'
       + '<div class="status-line" id="install-status"></div></div>')
 
-      + '<div class="footer-note">CoffeeLab v1.0.4 · 数据版本 v' + C.DATA_VERSION + ' · 记录 ' + s.brews.length + ' 杯 · 豆子 ' + s.beans.length + ' 款</div>';
+      + '<div class="footer-note">CoffeeLab v1.1.0 · 数据版本 v' + C.DATA_VERSION + ' · 记录 ' + s.brews.length + ' 杯 · 豆子 ' + s.beans.length + ' 款</div>';
 
     var q = function (id) { return root.querySelector(id); };
     var status = function (id, msg, isErr) {
@@ -132,9 +172,24 @@
       status('#data-status', '✓ 已导出 CSV（' + store.get().brews.length + ' 条）');
     });
 
-    /* 导入：选完文件立即读取并处理（原生 confirm 选合并/覆盖），全程不依赖任何
+    /* 导入：读取后立即处理（原生 confirm 选合并/覆盖），全程不依赖任何
      * 跨渲染的中间状态。此前"先暂存再点按钮"的两步流程，在 App 里会被选文件时
      * 的页面重载打断（回来页面已重建），表现为"导入了没反应"。 */
+    function handleImportData(data) {
+      var res = C.validateData(data);
+      if (!res.ok) { status('#data-status', '导入失败：数据格式或版本不正确', true); return; }
+      var photos = Array.isArray(data.photos) ? data.photos : [];
+      var desc = '豆子 ' + res.data.beans.length + ' 款、记录 ' + res.data.brews.length + ' 条' + (photos.length ? '、照片 ' + photos.length + ' 张' : '');
+      if (confirm('读取到备份：' + desc + '。\n\n「确定」= 合并导入（保留现有，按 id 去重）\n「取消」= 改为覆盖导入（先自动备份再清空现有数据）')) {
+        var m = store.importMerge(res.data);
+        if (!m) { status('#data-status', '导入失败：数据格式或版本不正确', true); return; }
+        importPhotos('✓ 合并完成：新增豆子 ' + m.addedCount.beans + ' 款、记录 ' + m.addedCount.brews + ' 条；跳过已有 ' + (m.skippedCount.beans + m.skippedCount.brews) + ' 条', photos, false);
+      } else if (confirm('覆盖导入会先自动备份当前数据，然后清空并替换为备份内容。确定覆盖吗？')) {
+        backupThenReplace(res.data, photos);
+      } else {
+        status('#data-status', '已取消导入');
+      }
+    }
     q('#imp-file').addEventListener('change', function (e) {
       var file = e.target.files[0];
       e.target.value = '';
@@ -144,21 +199,13 @@
         var data;
         try { data = JSON.parse(reader.result); }
         catch (err) { status('#data-status', '导入失败：不是有效的 JSON 文件', true); return; }
-        var res = C.validateData(data);
-        if (!res.ok) { status('#data-status', '导入失败：数据格式或版本不正确', true); return; }
-        var photos = Array.isArray(data.photos) ? data.photos : [];
-        var desc = '豆子 ' + res.data.beans.length + ' 款、记录 ' + res.data.brews.length + ' 条' + (photos.length ? '、照片 ' + photos.length + ' 张' : '');
-        if (confirm('读取到备份：' + desc + '。\n\n「确定」= 合并导入（保留现有，按 id 去重）\n「取消」= 改为覆盖导入（先自动备份再清空现有数据）')) {
-          var m = store.importMerge(res.data);
-          if (!m) { status('#data-status', '导入失败：数据格式或版本不正确', true); return; }
-          importPhotos('✓ 合并完成：新增豆子 ' + m.addedCount.beans + ' 款、记录 ' + m.addedCount.brews + ' 条；跳过已有 ' + (m.skippedCount.beans + m.skippedCount.brews) + ' 条', photos, false);
-        } else if (confirm('覆盖导入会先自动备份当前数据，然后清空并替换为备份内容。确定覆盖吗？')) {
-          backupThenReplace(res.data, photos);
-        } else {
-          status('#data-status', '已取消导入');
-        }
+        handleImportData(data);
       };
       reader.readAsText(file);
+    });
+    var pasteBtn = q('#imp-paste');
+    if (pasteBtn) pasteBtn.addEventListener('click', function () {
+      transferOverlay('', handleImportData);
     });
     /* 照片写回 IndexedDB 后补充提示（记录本体已导入，不受照片失败影响） */
     function importPhotos(prefix, photos, replace) {

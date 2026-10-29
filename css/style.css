@@ -239,6 +239,14 @@ input[type=range].c-green { accent-color: var(--green-mid); }
   z-index: 60; max-width: 86vw; box-shadow: 0 4px 14px rgba(30,58,47,.35); }
 .status-toast.err { background: #A3402E; }
 @media (min-width: 768px) { .status-toast { bottom: 28px; } }
+/* 数据传输面板（小红书沙箱版导出/导入用）：复制粘贴代替下载与文件选择 */
+.transfer-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 110;
+  background: rgba(20, 26, 23, .55); display: flex; align-items: center; justify-content: center; padding: 20px; }
+.transfer-box { background: var(--card); border-radius: 16px; padding: 16px; width: 100%; max-width: 480px;
+  max-height: 84vh; display: flex; flex-direction: column; }
+.transfer-title { font-size: 15px; color: var(--green); margin-bottom: 10px; }
+.transfer-area { width: 100%; min-height: 200px; max-height: 42vh; font-size: 11px;
+  font-family: Menlo, Consolas, monospace; resize: vertical; white-space: pre; }
 .btn-row { display: flex; flex-wrap: wrap; gap: 10px; }
 .confirm-row { display: flex; gap: 10px; margin-top: 12px; align-items: center; }
 .confirm-row .input { max-width: 120px; }

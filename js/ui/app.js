@@ -71,8 +71,8 @@
     document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') store.flush(); });
     window.addEventListener('beforeunload', function () { store.flush(); });
     window.addEventListener('pagehide', function () { store.flush(); });
-    /* Capacitor 原生壳内资源已随 App 内置，注册 SW 反而可能让更新停留在旧缓存，跳过 */
-    if (!window.Capacitor && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+    /* Capacitor 原生壳 / 小红书沙箱内资源已随包内置，注册 SW 反而可能让更新停留在旧缓存，跳过 */
+    if (!window.Capacitor && !window.CoffeeXHS && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
       navigator.serviceWorker.register('./sw.js').catch(function () { /* file:// 或离线首次，忽略 */ });
     }
   });
