@@ -11,3 +11,5 @@ android/keystore/
 android/keystore.properties
 *.keystore
 *.jks
+*.apk
+*.aab

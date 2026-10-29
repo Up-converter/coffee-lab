@@ -95,7 +95,7 @@
       + '<button class="btn btn-primary" id="install-btn" hidden>安装应用</button>'
       + '<div class="status-line" id="install-status"></div></div>')
 
-      + '<div class="footer-note">CoffeeLab v1.0.3 · 数据版本 v' + C.DATA_VERSION + ' · 记录 ' + s.brews.length + ' 杯 · 豆子 ' + s.beans.length + ' 款</div>';
+      + '<div class="footer-note">CoffeeLab v1.0.4 · 数据版本 v' + C.DATA_VERSION + ' · 记录 ' + s.brews.length + ' 杯 · 豆子 ' + s.beans.length + ' 款</div>';
 
     var q = function (id) { return root.querySelector(id); };
     var status = function (id, msg, isErr) {

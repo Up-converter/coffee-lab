@@ -15,7 +15,10 @@
     try {
       var raw = localStorage.getItem(DRAFT_KEY);
       var d = raw ? JSON.parse(raw) : null;
-      return (d && d.values && typeof d.values === 'object') ? d : null;
+      /* 草稿 2 小时内有效：救回选图/杀后台导致的重载，又不会隔天凭空"恢复"旧内容 */
+      if (d && d.values && typeof d.values === 'object' && Date.now() - (d.savedAt || 0) < 2 * 3600 * 1000) return d;
+      if (d) localStorage.removeItem(DRAFT_KEY);
+      return null;
     } catch (e) { return null; }
   }
   function writeDraftStore() {
@@ -27,7 +30,8 @@
         values: draft.values,
         tags: draft.tags,
         stars: draft.stars,
-        openAdv: draft.openAdv
+        openAdv: draft.openAdv,
+        savedAt: Date.now()
       }));
     } catch (e) { /* 配额不足等：内存草稿仍在，仅本次会话内有效 */ }
   }
@@ -534,10 +538,18 @@
     }
     if (draft && draft.photos) photos = draft.photos;   /* 切换方式时照片随草稿带过去 */
 
-    /* 照片缩略图（含"添加"占位块）；已存照片的图异步回填 */
+    /* 照片缩略图（含"添加"占位块）；已存照片的图异步回填。
+     * gen 为渲染代数：每次重渲染递增，上一轮遗留的异步回调按代数作废，
+     * 否则旧回调会把旧下标的照片画进新格子（表现为两张重复、删错格）。 */
+    var renderGen = 0;
+    function tileMissing(i) {
+      return '<div class="photo-tile missing" data-pidx="' + i + '"><span class="photo-miss-hint">照片丢失</span>'
+        + '<button type="button" class="photo-del" data-pdel="' + i + '" title="移除此照片">✕</button></div>';
+    }
     function renderPhotoTiles() {
       var box = q('#photo-tiles');
       if (!box) return;
+      var gen = ++renderGen;
       function tileHtml(i, url) {
         return '<div class="photo-tile' + (url ? '' : ' loading') + '" data-pidx="' + i + '">'
           + (url ? '<img src="' + url + '" alt="">' : '')
@@ -551,9 +563,9 @@
         photos.forEach(function (p, i) {
           if (!p.url && p.id) {
             CoffeePhotos.urlFor(p.id).then(function (url) {
-              if (!url || !box.isConnected) return;
+              if (gen !== renderGen || !box.isConnected) return;
               var tile = box.querySelector('[data-pidx="' + i + '"]');
-              if (tile) tile.outerHTML = tileHtml(i, url);
+              if (tile) tile.outerHTML = url ? tileHtml(i, url) : tileMissing(i);
             });
           }
         });
@@ -625,7 +637,7 @@
         var v = draft.values[id];
         return v !== '' && v !== false && v != null;
       });
-      if (meaningful) appToast('已恢复上次未保存的填写内容（照片需重新选择）');
+      if (meaningful) appToast('已恢复上次未保存的草稿；不需要请点「取消」清空（照片需重新选择）');
       else { draft = null; clearDraftStore(); }
     }
 
