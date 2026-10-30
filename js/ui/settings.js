@@ -30,7 +30,7 @@
       + '<div class="hint" style="margin:8px 0 10px">' + (importing
           ? '粘贴备份 JSON 后点「导入以上内容」；也可复制现有内容留作备份。'
           : (window.CoffeeXHS
-              ? '数据已自动同步到工具专属存储（平台清理后会自动恢复）。文件下载与一键复制被平台禁用，可手动全选下方文本复制转移。'
+              ? '数据已自动同步到工具专属存储（平台清理后会自动恢复）。文件下载与一键复制被平台禁用，可手动全选下方文本复制转移（不含照片，仅文字数据）。'
               : '长按文本全选复制，粘贴到微信 / 备忘录等处妥善保管这份备份。')) + '</div>'
       + '<div class="btn-row">'
       + (importing ? '<button type="button" class="btn btn-primary" id="tx-import">导入以上内容</button>' : '')
@@ -84,7 +84,7 @@
     var G = s.gear;
     var inApp = !!(window.Capacitor || window.CoffeeXHS);   /* 原生壳/小红书沙箱：安装 PWA 区块无意义 */
     var dataHint = window.Capacitor ? '数据保存在本机 App 内。定期导出 JSON 备份，换设备或重装 App 时导入即可迁移。'
-      : window.CoffeeXHS ? '数据已自动同步到工具专属存储（平台清理后会自动恢复）。沙箱内文件导出/导入被平台禁用，跨设备迁移请用网页版或 App。'
+      : window.CoffeeXHS ? '数据已自动同步到工具专属存储（平台清理后会自动恢复）。沙箱内导出/导入为纯文本（不含照片），文件操作被平台禁用，跨设备迁移请用网页版或 App。'
       : '数据仅保存在本机浏览器。定期导出 JSON 备份，换设备时导入即可迁移。';
     function gField(label, key, ph) {
       return '<div class="field"><span class="label">' + label + '</span>'
@@ -134,7 +134,7 @@
       + '<button class="btn btn-primary" id="install-btn" hidden>安装应用</button>'
       + '<div class="status-line" id="install-status"></div></div>')
 
-      + '<div class="footer-note">CoffeeLab v1.1.1 · 数据版本 v' + C.DATA_VERSION + ' · 记录 ' + s.brews.length + ' 杯 · 豆子 ' + s.beans.length + ' 款</div>';
+      + '<div class="footer-note">CoffeeLab v1.1.2 · 数据版本 v' + C.DATA_VERSION + ' · 记录 ' + s.brews.length + ' 杯 · 豆子 ' + s.beans.length + ' 款</div>';
 
     var q = function (id) { return root.querySelector(id); };
     var status = function (id, msg, isErr) {
@@ -156,6 +156,12 @@
     });
 
     q('#exp-json').addEventListener('click', function () {
+      /* 小红书沙箱：导出走复制粘贴，base64 照片会让文本大到无法传输——不含照片 */
+      if (window.CoffeeXHS) {
+        download('coffeelab-backup-' + stamp() + '.json', JSON.stringify(Object.assign({}, store.get()), null, 2), 'application/json');
+        status('#data-status', '✓ 已导出 JSON 备份（不含照片）');
+        return;
+      }
       var done = function (photos) {
         var payload = Object.assign({}, store.get());
         if (photos && photos.length) payload.photos = photos;
@@ -177,7 +183,10 @@
     function handleImportData(data) {
       var res = C.validateData(data);
       if (!res.ok) { status('#data-status', '导入失败：数据格式或版本不正确', true); return; }
-      var photos = Array.isArray(data.photos) ? data.photos : [];
+      /* 小红书沙箱：粘贴导入不写照片库——导出本就不含照片，外部备份的照片
+       * base64 体积大且沙箱 IndexedDB 不保证可用；记录中的照片引用保留，
+       * 照片不存在时由「照片丢失」占位兜底 */
+      var photos = (!window.CoffeeXHS && Array.isArray(data.photos)) ? data.photos : [];
       var desc = '豆子 ' + res.data.beans.length + ' 款、记录 ' + res.data.brews.length + ' 条' + (photos.length ? '、照片 ' + photos.length + ' 张' : '');
       if (confirm('读取到备份：' + desc + '。\n\n「确定」= 合并导入（保留现有，按 id 去重）\n「取消」= 改为覆盖导入（先自动备份再清空现有数据）')) {
         var m = store.importMerge(res.data);
@@ -217,7 +226,7 @@
           .catch(function () { status('#data-status', prefix + '；照片导入失败（记录已导入）', true); });
       } else status('#data-status', prefix);
     }
-    /* 覆盖前自动备份当前数据（含照片），备份发出后再执行覆盖 */
+    /* 覆盖前自动备份当前数据（含照片；小红书沙箱内备份不含照片），备份发出后再执行覆盖 */
     function backupThenReplace(data, photos) {
       var run = function (current) {
         var payload = Object.assign({}, store.get());
@@ -227,7 +236,8 @@
         if (ok) importPhotos('✓ 已覆盖导入（原数据已自动备份）', photos, true);
         else status('#data-status', '导入失败：数据格式或版本不正确', true);
       };
-      if (window.CoffeePhotos) CoffeePhotos.exportFor(store.get().brews).then(run).catch(function () { run(null); });
+      if (window.CoffeeXHS) run(null);
+      else if (window.CoffeePhotos) CoffeePhotos.exportFor(store.get().brews).then(run).catch(function () { run(null); });
       else run(null);
     }
 
