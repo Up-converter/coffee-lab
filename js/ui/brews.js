@@ -818,12 +818,14 @@
         q('#form-errors').scrollIntoView({ behavior: 'smooth', block: 'center' });
         return;
       }
+      /* 先作废草稿再落库：addBean/addBrew 会同步触发整页重渲染，
+       * 若此刻草稿仍在 localStorage，表单重渲染会误判成"恢复草稿"并弹出无用提示 */
+      draft = null;
+      clearDraftStore();
       /* 记录同步先存、先跳转——照片库慢/挂起/失败都不影响记录本身（夸克等内核曾因此丢记录） */
       if (res.newBean) store.addBean(res.newBean);
       if (editBrew) store.updateBrew(editBrew.id, res.brew);
       else store.addBrew(res.brew);
-      draft = null;                                /* 已提交，切换草稿作废 */
-      clearDraftStore();
       store.setSettings({ lastMethod: method });   /* 下次记一杯默认沿用本次方式 */
       CoffeeApp.go('#/brew/' + res.brew.id);
       /* 照片后台落库：逐张压缩（失败用原图）、单张失败不影响其余，仅提示 */

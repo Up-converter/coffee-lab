@@ -18,30 +18,27 @@
     if (msg) toastTimer = setTimeout(function () { el.hidden = true; toastTimer = null; }, 6000);
   }
 
-  /* 小红书沙箱：WebView 下载与文件选择可能被禁，导出/导入改走复制粘贴面板 */
+  /* 小红书沙箱：WebView 下载与文件选择可能被禁，导出/导入改走复制粘贴面板。
+   * 容器同时禁用剪贴板类 API 与系统长按菜单——面板只展示可选中文本，引导手动复制。 */
   function transferOverlay(text, onImport) {
+    var importing = !!onImport;
     var mask = document.createElement('div');
     mask.className = 'transfer-mask';
     mask.innerHTML = '<div class="transfer-box">'
-      + '<div class="transfer-title">' + (onImport ? '📋 复制 / 粘贴数据' : '📋 备份数据') + '</div>'
-      + '<textarea class="transfer-area input" spellcheck="false" placeholder="' + (onImport ? '把备份 JSON 粘贴到这里' : '') + '"></textarea>'
-      + '<div class="hint" style="margin:8px 0 10px">' + (onImport
+      + '<div class="transfer-title">' + (importing ? '📋 复制 / 粘贴数据' : '📋 备份数据') + '</div>'
+      + '<textarea class="transfer-area input" spellcheck="false"' + (importing ? '' : ' readonly') + ' placeholder="' + (importing ? '把备份 JSON 粘贴到这里' : '') + '"></textarea>'
+      + '<div class="hint" style="margin:8px 0 10px">' + (importing
           ? '粘贴备份 JSON 后点「导入以上内容」；也可复制现有内容留作备份。'
-          : '建议点「复制内容」后粘贴保存到微信/备忘录，妥善保管这份备份。') + '</div>'
+          : (window.CoffeeXHS
+              ? '数据已自动同步到工具专属存储（平台清理后会自动恢复）。文件下载与一键复制被平台禁用，可手动全选下方文本复制转移。'
+              : '长按文本全选复制，粘贴到微信 / 备忘录等处妥善保管这份备份。')) + '</div>'
       + '<div class="btn-row">'
-      + '<button type="button" class="btn btn-primary" id="tx-copy">复制内容</button>'
-      + (onImport ? '<button type="button" class="btn btn-primary" id="tx-import">导入以上内容</button>' : '')
+      + (importing ? '<button type="button" class="btn btn-primary" id="tx-import">导入以上内容</button>' : '')
       + '<button type="button" class="btn" id="tx-close">关闭</button>'
       + '</div></div>';
     document.body.appendChild(mask);
     var area = mask.querySelector('.transfer-area');
     area.value = text || '';
-    mask.querySelector('#tx-copy').addEventListener('click', function () {
-      area.focus(); area.select();
-      var ok = false;
-      try { ok = document.execCommand('copy'); } catch (e) {}
-      toast(ok ? '✓ 已复制，请粘贴保存' : '自动复制不可用，请长按文本全选手动复制', !ok);
-    });
     var impBtn = mask.querySelector('#tx-import');
     if (impBtn) impBtn.addEventListener('click', function () {
       var v = area.value;
@@ -87,7 +84,7 @@
     var G = s.gear;
     var inApp = !!(window.Capacitor || window.CoffeeXHS);   /* 原生壳/小红书沙箱：安装 PWA 区块无意义 */
     var dataHint = window.Capacitor ? '数据保存在本机 App 内。定期导出 JSON 备份，换设备或重装 App 时导入即可迁移。'
-      : window.CoffeeXHS ? '当前运行在小红书沙箱内，数据可能被平台清理，请勤用「导出」把备份复制保存到别处。'
+      : window.CoffeeXHS ? '数据已自动同步到工具专属存储（平台清理后会自动恢复）。沙箱内文件导出/导入被平台禁用，跨设备迁移请用网页版或 App。'
       : '数据仅保存在本机浏览器。定期导出 JSON 备份，换设备时导入即可迁移。';
     function gField(label, key, ph) {
       return '<div class="field"><span class="label">' + label + '</span>'
@@ -114,8 +111,10 @@
       + '<div class="btn-row">'
       + '<button class="btn btn-primary" id="exp-json">导出 JSON 备份</button>'
       + '<button class="btn" id="exp-csv">导出 CSV 表格</button>'
-      + '<label class="btn" style="cursor:pointer">导入 JSON<input type="file" id="imp-file" accept=".json,application/json" hidden></label>'
-      + (window.CoffeeXHS ? '<button class="btn" id="imp-paste">📋 粘贴导入</button>' : '')
+      /* 小红书沙箱的选择器只允许图片/视频，JSON 文件导入必然失败，只留粘贴导入 */
+      + (window.CoffeeXHS
+          ? '<button class="btn" id="imp-paste">📋 粘贴导入</button>'
+          : '<label class="btn" style="cursor:pointer">导入 JSON<input type="file" id="imp-file" accept=".json,application/json" hidden></label>')
       + '</div>'
       + '<div class="status-line" id="data-status"></div></div>'
 
@@ -135,7 +134,7 @@
       + '<button class="btn btn-primary" id="install-btn" hidden>安装应用</button>'
       + '<div class="status-line" id="install-status"></div></div>')
 
-      + '<div class="footer-note">CoffeeLab v1.1.0 · 数据版本 v' + C.DATA_VERSION + ' · 记录 ' + s.brews.length + ' 杯 · 豆子 ' + s.beans.length + ' 款</div>';
+      + '<div class="footer-note">CoffeeLab v1.1.1 · 数据版本 v' + C.DATA_VERSION + ' · 记录 ' + s.brews.length + ' 杯 · 豆子 ' + s.beans.length + ' 款</div>';
 
     var q = function (id) { return root.querySelector(id); };
     var status = function (id, msg, isErr) {
@@ -190,7 +189,8 @@
         status('#data-status', '已取消导入');
       }
     }
-    q('#imp-file').addEventListener('change', function (e) {
+    var impFile = q('#imp-file');   /* 小红书沙箱内无文件导入（选择器仅允许图片），只有粘贴导入 */
+    if (impFile) impFile.addEventListener('change', function (e) {
       var file = e.target.files[0];
       e.target.value = '';
       if (!file) return;
